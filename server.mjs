@@ -2,6 +2,8 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import qrcode from 'qrcode';
@@ -14,9 +16,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
 const port = process.env.PORT || 3001;
 let isWhatsappReady = false;
-let qrCodeData = null; // Variável para armazenar o QR Code para o frontend
+
+// --- WEBSOCKET BROADCASTING ---
+const broadcast = (data) => {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+};
+
+wss.on('connection', (ws) => {
+  console.log('Cliente WebSocket conectado ao servidor.');
+  // Você pode enviar o status inicial ao cliente se desejar
+  // ws.send(JSON.stringify({ type: 'status', data: isWhatsappReady ? 'connected' : 'disconnected' }));
+});
+
 
 // --- WHATSAPP CLIENT SETUP (NÃO OFICIAL) ---
 console.log('Inicializando cliente WhatsApp...');
@@ -28,35 +47,40 @@ const client = new Client({
 });
 
 client.on('qr', async (qr) => {
-    console.log('QR Code Recebido! Gerando Data URL para o frontend.');
+    console.log('QR Code Recebido! Gerando data URL para o frontend.');
     try {
-        qrCodeData = await qrcode.toDataURL(qr); // Converte o QR para um Data URL de imagem
+        const qrDataUrl = await qrcode.toDataURL(qr);
+        broadcast({ type: 'qr_code', data: qrDataUrl });
         isWhatsappReady = false;
     } catch (err) {
-        console.error('Falha ao gerar QR code data URL', err);
-        qrCodeData = null;
+        console.error('Falha ao gerar QR code data URL:', err);
     }
 });
 
 client.on('ready', () => {
     console.log('Cliente WhatsApp está pronto e conectado!');
     isWhatsappReady = true;
-    qrCodeData = null; // Limpa o QR Code após a conexão
+    broadcast({ type: 'status', data: 'connected' });
 });
 
 client.on('message', async (message) => {
     console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
     // A lógica do seu chatbot começaria aqui.
-    // Por exemplo, uma resposta simples:
-    if (message.body.toLowerCase() === 'oi') {
-        await message.reply('Olá! Bem-vindo à CAR CLASS. Como posso ajudar?');
+    broadcast({ type: 'message', data: { from: message.from, body: message.body, timestamp: message.timestamp, fromMe: message.fromMe } });
+});
+
+client.on('message_create', async (message) => {
+    // Fired on all message creations, including your own
+    if (message.fromMe) {
+        console.log(`Mensagem enviada para ${message.to}: ${message.body}`);
+        broadcast({ type: 'message', data: { to: message.to, body: message.body, timestamp: message.timestamp, fromMe: message.fromMe } });
     }
 });
 
 client.on('disconnected', (reason) => {
     console.log('Cliente WhatsApp foi desconectado!', reason);
     isWhatsappReady = false;
-    qrCodeData = null; // Limpa o QR Code na desconexão
+    broadcast({ type: 'status', data: 'disconnected' });
     // Tenta reinicializar para se reconectar
     client.initialize();
 });
@@ -79,7 +103,7 @@ const ai = new GoogleGenAI({ apiKey });
 // --- ROTAS DA API ---
 
 app.get('/api/whatsapp/status', (req, res) => {
-    res.json({ isConnected: isWhatsappReady, qr: qrCodeData });
+    res.json({ isConnected: isWhatsappReady });
 });
 
 app.post('/api/whatsapp/send-message', async (req, res) => {
@@ -91,7 +115,9 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
         return res.status(503).json({ error: 'Cliente WhatsApp não está pronto.' });
     }
     try {
-        await client.sendMessage(chatId, message);
+        // O formato do ID do chat no wweb.js é numero@c.us
+        const sanitizedChatId = chatId.endsWith('@c.us') ? chatId : `${chatId}@c.us`;
+        await client.sendMessage(sanitizedChatId, message);
         res.status(200).json({ success: true });
     } catch (e) {
         console.error("Erro ao enviar mensagem manual:", e);
@@ -221,6 +247,6 @@ app.get('*', (req, res) => {
 
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
-app.listen(port, () => {
+server.listen(port, () => {
   console.log(`Servidor unificado (Frontend + Backend) rodando em http://localhost:${port}`);
 });
