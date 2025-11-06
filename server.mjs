@@ -29,7 +29,7 @@ const client = new Client({
 client.on('qr', (qr) => {
     console.log('QR Code Recebido! Escaneie com seu celular.');
     // Gera o QR code diretamente no terminal/log do Render.
-    qrcode.generate(qr, { small: false });
+    qrcode.generate(qr, { small: true });
     isWhatsappReady = false;
 });
 
