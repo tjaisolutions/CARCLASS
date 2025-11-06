@@ -1,4 +1,4 @@
-import { Client, Service, Appointment, MonthlyPlan, ClientPlanUsage } from './types';
+import { Client, Service, Appointment, MonthlyPlan, ClientPlanUsage, AppointmentStatus } from './types';
 
 export const MOCK_SERVICES: Service[] = [];
 
