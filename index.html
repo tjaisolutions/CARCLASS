@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CAR CLASS</title>
   <script src="https://cdn.tailwindcss.com"></script>
@@ -11,11 +11,11 @@
       theme: {
         extend: {
           colors: {
-            'brand-red': '#E43328',        // Vermelho vibrante para botões e destaques
-            'brand-red-dark': '#660D0D',   // Vermelho escuro solicitado para bordas e fundos
-            'brand-gray-light': '#262626', // Cinza para elementos de UI secundários
-            'brand-gray-medium': '#1a1a1a',// Cinza para cards e modais
-            'brand-gray-dark': '#0D0D0D',  // Preto para o fundo principal
+            'brand-red': '#E43328',        // Vermelho vibrante do logo
+            'brand-red-dark': '#660D0D',   // Vermelho escuro solicitado
+            'brand-gray-light': '#262626', // Cinza para header/nav
+            'brand-gray-medium': '#1a1a1a',// Cinza para cards
+            'brand-gray-dark': '#0D0D0D',  // Preto para fundo
           },
           fontFamily: {
             'sans': ['Inter', 'sans-serif'],
@@ -45,7 +45,7 @@
 }
 </script>
 </head>
-<body class="bg-brand-gray-dark">
+<body class="bg-gradient-to-b from-brand-gray-dark to-brand-gray-medium">
   <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
 </body>
