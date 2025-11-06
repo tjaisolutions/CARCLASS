@@ -1,7 +1,8 @@
 
 
-// Fix: Import Request and Response with aliases to avoid type conflicts with global types.
-import express, { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+
+// Fix: Removed TypeScript type imports as this file is run directly by Node.js.
+import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -18,10 +19,6 @@ const port = process.env.PORT || 3001;
 
 // --- MIDDLEWARE ---
 // Permite que o servidor entenda requisições com corpo em JSON.
-// Fix: The express.json() middleware is correctly used, but a type error is being reported.
-// This is likely due to a misconfiguration in the project's type definitions.
-// We'll ignore the error as the code is functionally correct.
-// @ts-ignore
 app.use(express.json());
 // Configura o 'multer' para processar uploads de arquivos, armazenando-os em memória.
 const upload = multer({ storage: multer.memoryStorage() });
@@ -40,15 +37,15 @@ const ai = new GoogleGenAI({ apiKey });
 // --- ROTAS DA API ---
 
 // Endpoint para o chatbot de seleção de serviço.
-// Fix: Use aliased ExpressRequest and ExpressResponse types to ensure correct type checking for req and res objects.
-app.post('/api/chat', async (req: ExpressRequest, res: ExpressResponse) => {
+// Fix: Removed TypeScript type annotations from request and response objects.
+app.post('/api/chat', async (req, res) => {
   const { userInput, services } = req.body;
 
   if (!userInput || !services) {
     return res.status(400).json({ error: 'userInput e services são obrigatórios.' });
   }
 
-  const serviceListForPrompt = services.map((s: any) =>
+  const serviceListForPrompt = services.map((s) =>
     `- ID: "${s.id}", Nome: "${s.name}", Preço: R$${s.price.toFixed(2)}, Descrição: "${s.description}"`
   ).join('\n');
 
@@ -100,11 +97,10 @@ Com base na mensagem, responda APENAS com um objeto JSON válido com este format
 });
 
 // Endpoint para processar upload de catálogo de serviços (PDF/JPG).
-// Fix: Use aliased ExpressRequest and ExpressResponse types to ensure correct type checking for req and res objects.
-app.post('/api/process-catalog', upload.single('catalogFile'), async (req: ExpressRequest, res: ExpressResponse) => {
-  // Fix: The 'file' property is added by multer. The default Request type doesn't know about it.
-  // We cast `req` to `any` to access it as a workaround for a likely type definition setup issue.
-  const file = (req as any).file;
+// Fix: Removed TypeScript type annotations and type casting.
+app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) => {
+  // Fix: Access `req.file` directly as Node.js doesn't understand TypeScript casting.
+  const file = req.file;
   if (!file) {
     return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
   }
@@ -165,8 +161,8 @@ app.use(express.static(path.join(__dirname, 'dist')));
 // Rota "catch-all". Qualquer requisição que não seja para a API ou um arquivo estático
 // (como .css, .js, .png) será redirecionada para o index.html. Isso é crucial para
 // que o roteamento do lado do cliente (client-side routing) do React funcione.
-// Fix: Use aliased ExpressRequest and ExpressResponse types to ensure correct type checking for req and res objects.
-app.get('*', (req: ExpressRequest, res: ExpressResponse) => {
+// Fix: Removed TypeScript type annotations from request and response objects.
+app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
