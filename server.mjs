@@ -4,10 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
-// Fix: Use createRequire to robustly import the CommonJS 'qrcode-terminal' module.
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const qrcode = require('qrcode-terminal');
 
 // Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
 import pkg from 'whatsapp-web.js';
@@ -32,9 +28,8 @@ const client = new Client({
 });
 
 client.on('qr', (qr) => {
-    console.log('QR Code Recebido! Escaneie com seu celular.');
-    // Gera o QR code diretamente no terminal/log do Render.
-    qrcode.generate(qr, { small: true });
+    console.log('QR Code Recebido! Escaneie no frontend do aplicativo.');
+    // O QR code é enviado para o frontend via API. A exibição no terminal foi removida.
     currentQrCode = qr; // Armazena o QR Code para a API
     isWhatsappReady = false;
 });
