@@ -20,7 +20,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = process.env.PORT || 3001;
 let isWhatsappReady = false;
-let currentQrCode = null; // Variável para armazenar o QR Code
+let currentQrCode = null;
+let client; // Declarar o cliente no escopo superior para ser acessível globalmente
 
 // --- MONGODB CONNECTION ---
 const MONGO_URI = process.env.MONGO_URI;
@@ -37,7 +38,8 @@ mongoose.connect(MONGO_URI).then(() => {
 
     // --- WHATSAPP CLIENT SETUP (USANDO REMOTE AUTH) ---
     console.log('Inicializando cliente WhatsApp com RemoteAuth...');
-    const client = new Client({
+    // Atribui a instância ao cliente declarado no escopo superior
+    client = new Client({
         authStrategy: new RemoteAuth({
             store: store,
             backupSyncIntervalMs: 300000, // Salva a sessão no DB a cada 5 minutos
@@ -74,6 +76,8 @@ mongoose.connect(MONGO_URI).then(() => {
         console.log('Cliente WhatsApp foi desconectado!', reason);
         isWhatsappReady = false;
         currentQrCode = null;
+        // Tenta reinicializar para reconectar automaticamente
+        client.initialize().catch(err => console.error('Erro ao RE-inicializar WhatsApp Client:', err));
     });
 
     // Inicializa o cliente.
@@ -107,13 +111,13 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
     if (!chatId || !message) {
         return res.status(400).json({ error: 'chatId e message são obrigatórios.' });
     }
-    if (!isWhatsappReady) {
+    // Verifica se o cliente está pronto e inicializado
+    if (!isWhatsappReady || !client) {
         return res.status(503).json({ error: 'Cliente WhatsApp não está pronto.' });
     }
     try {
-        // Acessamos o client de dentro do escopo do mongoose.connect
-        const wwebClient = mongoose.connection.client.wwebClient;
-        await wwebClient.sendMessage(chatId, message);
+        // Usa a variável 'client' do escopo superior que foi corrigida
+        await client.sendMessage(chatId, message);
         res.status(200).json({ success: true });
     } catch (e) {
         console.error("Erro ao enviar mensagem manual:", e);
