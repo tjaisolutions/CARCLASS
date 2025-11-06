@@ -499,11 +499,11 @@ const ImageAttachment = ({ file }: { file: File }) => {
     );
 };
 
-const WhatsAppConnectionStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
+const WhatsAppConnectionStatus = ({ status, message }: { status: 'connected' | 'disconnected' | 'loading', message: string }) => {
     const statusConfig = {
-        connected: { text: 'Conectado', color: 'text-green-400', iconColor: 'text-green-500' },
-        disconnected: { text: 'Desconectado', color: 'text-red-400', iconColor: 'text-red-500' },
-        loading: { text: 'Aguardando Conexão', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
+        connected: { text: message || 'Conectado', color: 'text-green-400', iconColor: 'text-green-500' },
+        disconnected: { text: message || 'Desconectado', color: 'text-red-400', iconColor: 'text-red-500' },
+        loading: { text: message || 'Aguardando Conexão', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
     };
     const currentStatus = statusConfig[status];
 
@@ -537,7 +537,7 @@ type TempAppointmentData = {
     paymentMethod?: Appointment['paymentMethod'];
 };
 
-const WhatsAppView = ({ currentUser, status, qrCode, setStatus, services, clients, appointments, onClientAdded, onClientUpdated, onAppointmentFinalized, onAppointmentRescheduled, onAppointmentCancelled, operatingHours, onConversationFinished, catalogFiles, monthlyPlans, clientPlanUsages, conversationLogs, addNotification }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; services: Service[]; clients: Client[]; appointments: Appointment[]; onClientAdded: (client: Omit<Client, 'id'>) => string; onClientUpdated: (client: Client) => void; onAppointmentFinalized: (data: TempAppointmentData) => void; onAppointmentRescheduled: (id: string, date: string, time: string) => void; onAppointmentCancelled: (id: string) => void; operatingHours: OperatingHours; onConversationFinished: (log: ConversationLog) => void; catalogFiles: { id: string; file: File }[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; conversationLogs: ConversationLog[]; addNotification: (message: string) => void; }) => {
+const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, services, clients, appointments, onClientAdded, onClientUpdated, onAppointmentFinalized, onAppointmentRescheduled, onAppointmentCancelled, operatingHours, onConversationFinished, catalogFiles, monthlyPlans, clientPlanUsages, conversationLogs, addNotification }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; services: Service[]; clients: Client[]; appointments: Appointment[]; onClientAdded: (client: Omit<Client, 'id'>) => string; onClientUpdated: (client: Client) => void; onAppointmentFinalized: (data: TempAppointmentData) => void; onAppointmentRescheduled: (id: string, date: string, time: string) => void; onAppointmentCancelled: (id: string) => void; operatingHours: OperatingHours; onConversationFinished: (log: ConversationLog) => void; catalogFiles: { id: string; file: File }[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; conversationLogs: ConversationLog[]; addNotification: (message: string) => void; }) => {
     const [messages, setMessages] = useState<ChatMessageData[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [userInput, setUserInput] = useState('');
@@ -895,6 +895,16 @@ const WhatsAppView = ({ currentUser, status, qrCode, setStatus, services, client
         }, 500);
     };
 
+    const handleReconnect = async () => {
+        setStatus('loading');
+        try {
+            await fetch('/api/whatsapp/reconnect', { method: 'POST' });
+            // The checkStatus loop will handle the state update
+        } catch (error) {
+            console.error("Error triggering reconnect", error);
+            setStatus('disconnected');
+        }
+    };
 
     useEffect(() => {
         if (status === 'connected' && messages.length === 0) {
@@ -921,7 +931,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, setStatus, services, client
     return (
         <div className="h-full flex flex-col">
             <div className="p-4 pb-0">
-                <WhatsAppConnectionStatus status={status} />
+                <WhatsAppConnectionStatus status={status} message={statusMessage} />
             </div>
             
             {status === 'connected' ? (
@@ -1022,8 +1032,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, setStatus, services, client
                 <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
                     <ChatBubbleOvalLeftEllipsisIcon className="w-16 h-16 text-gray-500 mb-4"/>
                     <h3 className="text-xl font-bold text-white">WhatsApp Desconectado</h3>
-                    <p className="text-gray-400 mt-2 max-w-md mb-6">Clique em 'Reconectar' ou aguarde. Se o problema persistir, um novo QR Code pode ser necessário para estabelecer a conexão.</p>
-                     <button onClick={async () => { setStatus('loading'); await fetch('/api/whatsapp/status'); }} className="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3 px-6 rounded-md flex items-center gap-2 text-lg">
+                    <p className="text-gray-400 mt-2 max-w-md mb-6">Clique em 'Reconectar' para tentar novamente. Se o problema persistir, pode ser necessário reiniciar o serviço.</p>
+                     <button onClick={handleReconnect} className="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3 px-6 rounded-md flex items-center gap-2 text-lg">
                         <ArrowPathIcon className="w-6 h-6"/> Reconectar
                     </button>
                 </div>
@@ -1041,7 +1051,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, setStatus, services, client
                         <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
                             <QrCodeIcon className="w-16 h-16 text-white mb-4 animate-pulse"/>
                             <h3 className="text-xl font-bold text-white">Aguardando Conexão</h3>
-                            <p className="text-gray-400 mt-2 max-w-md">Gerando QR Code... A tela será atualizada automaticamente assim que ele estiver pronto.</p>
+                            <p className="text-gray-400 mt-2 max-w-md">{statusMessage}</p>
                         </div>
                     )}
                 </>
@@ -2155,36 +2165,48 @@ const App = () => {
     
     const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: File }[]>([]);
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
-    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('disconnected');
+    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
     const [qrCode, setQrCode] = useState<string | null>(null);
+    const [statusMessage, setStatusMessage] = useState('Inicializando...');
+
+    const isPolling = useRef(false);
 
     useEffect(() => {
         const checkStatus = async () => {
-            if (!currentUser) return;
+            if (!currentUser || isPolling.current) return;
+            isPolling.current = true;
             try {
                 const response = await fetch('/api/whatsapp/status');
                 const data = await response.json();
                 
                 setQrCode(data.qrCode || null);
+                setStatusMessage(data.message || '');
 
                 if (data.isConnected) {
                     setWhatsAppStatus('connected');
                 } else if (data.qrCode) {
-                    setWhatsAppStatus('loading');
+                    setWhatsAppStatus('loading'); // loading but with QR
                 } else {
                     setWhatsAppStatus('disconnected');
                 }
-
             } catch (error) {
+                console.error("Status check failed:", error);
                 setWhatsAppStatus('disconnected');
                 setQrCode(null);
+                setStatusMessage('Erro de conexão com o servidor.');
+            } finally {
+                isPolling.current = false;
+                // If not connected, poll again after a delay
+                if (whatsAppStatus !== 'connected') {
+                   setTimeout(checkStatus, 3000); // Poll again after 3s if not connected
+                }
             }
         };
 
-        checkStatus();
-        const intervalId = setInterval(checkStatus, 5000); // Poll every 5 seconds
-        return () => clearInterval(intervalId);
-    }, [currentUser]);
+        if (currentUser && whatsAppStatus !== 'connected') {
+            checkStatus();
+        }
+    }, [currentUser, whatsAppStatus]); // Re-trigger when status changes
 
     const addNotification = (message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
@@ -2343,7 +2365,7 @@ const App = () => {
             case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
             case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
             case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} setStatus={setWhatsAppStatus} services={services} clients={clients} appointments={appointments} onClientAdded={handleAddClientFromWhatsApp} onClientUpdated={handleUpdateClientFromWhatsApp} onAppointmentFinalized={handleFinalizeAppointmentFromWhatsApp} onAppointmentRescheduled={handleRescheduleAppointmentFromWhatsApp} onAppointmentCancelled={handleCancelAppointmentFromWhatsApp} operatingHours={operatingHours} onConversationFinished={handleNewConversation} catalogFiles={catalogFiles} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} conversationLogs={conversationLogs} addNotification={addNotification} />;
+            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} services={services} clients={clients} appointments={appointments} onClientAdded={handleAddClientFromWhatsApp} onClientUpdated={handleUpdateClientFromWhatsApp} onAppointmentFinalized={handleFinalizeAppointmentFromWhatsApp} onAppointmentRescheduled={handleRescheduleAppointmentFromWhatsApp} onAppointmentCancelled={handleCancelAppointmentFromWhatsApp} operatingHours={operatingHours} onConversationFinished={handleNewConversation} catalogFiles={catalogFiles} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} conversationLogs={conversationLogs} addNotification={addNotification} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
             case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
