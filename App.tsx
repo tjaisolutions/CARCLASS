@@ -2147,20 +2147,27 @@ const App = () => {
     const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('disconnected');
 
     useEffect(() => {
-        const checkStatus = async () => {
-            if (!currentUser) return;
-            try {
-                const response = await fetch('/api/whatsapp/status');
-                const data = await response.json();
-                setWhatsAppStatus(data.isConnected ? 'connected' : 'loading'); 
-            } catch (error) {
-                setWhatsAppStatus('disconnected');
-            }
+        if (!currentUser) return;
+    
+        const eventSource = new EventSource('/api/whatsapp/status-stream');
+    
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            setWhatsAppStatus(data.isConnected ? 'connected' : 'loading');
         };
-        checkStatus();
-        const intervalId = setInterval(checkStatus, 5000);
-        return () => clearInterval(intervalId);
+    
+        eventSource.onerror = () => {
+            setWhatsAppStatus('disconnected');
+            eventSource.close();
+        };
+    
+        // Cleanup function to close the connection when the component unmounts
+        // or when the user logs out.
+        return () => {
+            eventSource.close();
+        };
     }, [currentUser]);
+
 
     const addNotification = (message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
