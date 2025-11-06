@@ -1057,6 +1057,10 @@ const WhatsAppView = ({ currentUser, status, setStatus, services, clients, appoi
                                  <img src={qrCodeData} alt="WhatsApp QR Code" className="w-64 h-64" />
                              </div>
                              <p className="text-gray-400 mt-4 max-w-md">Abra o WhatsApp no seu celular, vá em 'Aparelhos conectados' e escaneie o código acima.</p>
+                             <div className="mt-4 p-3 bg-yellow-900/50 border border-yellow-700 rounded-lg text-yellow-300 text-sm max-w-md">
+                                <p><strong className="font-semibold">Problemas para conectar?</strong></p>
+                                <p className="mt-1">Se o WhatsApp mostrar um erro ("não foi possível conectar"), pode ser uma instabilidade temporária no serviço deles. Por favor, aguarde alguns minutos e tente novamente.</p>
+                             </div>
                         </>
                     ) : (
                         <>
