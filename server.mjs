@@ -71,12 +71,27 @@ const ai = new GoogleGenAI({ apiKey });
 
 // --- ROTAS DA API ---
 
-// NOVO: Endpoint para o frontend verificar o status da conexão.
 app.get('/api/whatsapp/status', (req, res) => {
     res.json({ isConnected: isWhatsappReady });
 });
 
-// Endpoint para o chatbot de seleção de serviço.
+app.post('/api/whatsapp/send-message', async (req, res) => {
+    const { chatId, message } = req.body;
+    if (!chatId || !message) {
+        return res.status(400).json({ error: 'chatId e message são obrigatórios.' });
+    }
+    if (!isWhatsappReady) {
+        return res.status(503).json({ error: 'Cliente WhatsApp não está pronto.' });
+    }
+    try {
+        await client.sendMessage(chatId, message);
+        res.status(200).json({ success: true });
+    } catch (e) {
+        console.error("Erro ao enviar mensagem manual:", e);
+        res.status(500).json({ success: false, error: 'Falha ao enviar mensagem.' });
+    }
+});
+
 app.post('/api/chat', async (req, res) => {
   const { userInput, services } = req.body;
 
@@ -135,7 +150,6 @@ Com base na mensagem, responda APENAS com um objeto JSON válido com este format
   }
 });
 
-// Endpoint para processar upload de catálogo de serviços (PDF/JPG).
 app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) => {
   const file = req.file;
   if (!file) {
