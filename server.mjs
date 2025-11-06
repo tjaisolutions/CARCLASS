@@ -4,10 +4,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
+import mongoose from 'mongoose';
 
 // Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
 import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth } = pkg;
+const { Client, RemoteAuth } = pkg;
+
+// Importar o MongoStore para RemoteAuth
+import { MongoStore } from 'wwebjs-mongo';
 
 // --- SETUP ---
 const __filename = fileURLToPath(import.meta.url);
@@ -18,48 +22,67 @@ const port = process.env.PORT || 3001;
 let isWhatsappReady = false;
 let currentQrCode = null; // Variável para armazenar o QR Code
 
-// --- WHATSAPP CLIENT SETUP (NÃO OFICIAL) ---
-console.log('Inicializando cliente WhatsApp...');
-const client = new Client({
-    // ATENÇÃO: A pasta 'wwebjs_auth' deve ser montada como um disco persistente no Render.
-    authStrategy: new LocalAuth({ dataPath: 'wwebjs_auth' }),
-    puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'], // Necessário para rodar em ambientes como o Render
-    },
-});
+// --- MONGODB CONNECTION ---
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+    console.error("ERRO: A variável de ambiente MONGO_URI não foi definida no servidor.");
+    process.exit(1); // Encerra se não houver conexão com o DB
+}
 
-client.on('qr', (qr) => {
-    console.log('QR Code Recebido! Escaneie no frontend do aplicativo.');
-    // O QR code é enviado para o frontend via API. A exibição no terminal foi removida.
-    currentQrCode = qr; // Armazena o QR Code para a API
-    isWhatsappReady = false;
-});
+console.log('Conectando ao MongoDB...');
+mongoose.connect(MONGO_URI).then(() => {
+    console.log('MongoDB conectado com sucesso.');
+    
+    const store = new MongoStore({ mongoose: mongoose });
 
-client.on('ready', () => {
-    console.log('Cliente WhatsApp está pronto e conectado!');
-    isWhatsappReady = true;
-    currentQrCode = null; // Limpa o QR Code após a conexão
-});
+    // --- WHATSAPP CLIENT SETUP (USANDO REMOTE AUTH) ---
+    console.log('Inicializando cliente WhatsApp com RemoteAuth...');
+    const client = new Client({
+        authStrategy: new RemoteAuth({
+            store: store,
+            backupSyncIntervalMs: 300000, // Salva a sessão no DB a cada 5 minutos
+        }),
+        puppeteer: {
+            args: ['--no-sandbox', '--disable-setuid-sandbox'], // Necessário para rodar em ambientes como o Render
+        },
+    });
 
-client.on('message', async (message) => {
-    console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
-    // A lógica do seu chatbot começaria aqui.
-    // Por exemplo, uma resposta simples:
-    if (message.body.toLowerCase() === 'oi') {
-        await message.reply('Olá! Bem-vindo à CAR CLASS. Como posso ajudar?');
-    }
-});
+    client.on('qr', (qr) => {
+        console.log('QR Code Recebido! Escaneie no frontend do aplicativo.');
+        currentQrCode = qr;
+        isWhatsappReady = false;
+    });
 
-client.on('disconnected', (reason) => {
-    console.log('Cliente WhatsApp foi desconectado!', reason);
-    isWhatsappReady = false;
-    currentQrCode = null; // Limpa o QR Code na desconexão
-    // Tenta reinicializar para se reconectar
-    client.initialize();
-});
+    client.on('ready', () => {
+        console.log('Cliente WhatsApp está pronto e conectado!');
+        isWhatsappReady = true;
+        currentQrCode = null;
+    });
+    
+    client.on('remote_session_saved', () => {
+        console.log('Sessão remota salva no MongoDB.');
+    });
 
-// Inicializa o cliente. Isso vai disparar o evento 'qr' se não estiver autenticado.
-client.initialize().catch(err => console.error('Erro ao inicializar WhatsApp Client:', err));
+    client.on('message', async (message) => {
+        console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
+        if (message.body.toLowerCase() === 'oi') {
+            await message.reply('Olá! Bem-vindo à CAR CLASS. Como posso ajudar?');
+        }
+    });
+
+    client.on('disconnected', (reason) => {
+        console.log('Cliente WhatsApp foi desconectado!', reason);
+        isWhatsappReady = false;
+        currentQrCode = null;
+    });
+
+    // Inicializa o cliente.
+    client.initialize().catch(err => console.error('Erro ao inicializar WhatsApp Client:', err));
+
+}).catch(err => {
+    console.error('Falha ao conectar ao MongoDB', err);
+    process.exit(1);
+});
 
 
 // --- MIDDLEWARE ---
@@ -88,7 +111,9 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
         return res.status(503).json({ error: 'Cliente WhatsApp não está pronto.' });
     }
     try {
-        await client.sendMessage(chatId, message);
+        // Acessamos o client de dentro do escopo do mongoose.connect
+        const wwebClient = mongoose.connection.client.wwebClient;
+        await wwebClient.sendMessage(chatId, message);
         res.status(200).json({ success: true });
     } catch (e) {
         console.error("Erro ao enviar mensagem manual:", e);
