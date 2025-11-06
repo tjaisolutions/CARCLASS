@@ -548,6 +548,7 @@ const WhatsAppView = ({ currentUser, status, setStatus, services, clients, appoi
     const [activeConversationId, setActiveConversationId] = useState<'live' | string>('live');
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [isManualMode, setIsManualMode] = useState(false);
+    const [qrCodeData, setQrCodeData] = useState<string | null>(null);
 
     const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -910,6 +911,26 @@ const WhatsAppView = ({ currentUser, status, setStatus, services, clients, appoi
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isTyping]);
+    
+    useEffect(() => {
+        const eventSource = new EventSource('/api/whatsapp/status-stream');
+
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            setStatus(data.isConnected ? 'connected' : 'loading');
+            setQrCodeData(data.qrCode || null);
+        };
+
+        eventSource.onerror = () => {
+            setStatus('disconnected');
+            eventSource.close();
+        };
+
+        return () => {
+            eventSource.close();
+        };
+    }, [setStatus]);
+
 
     const commonButtonClasses = "p-3 rounded-md text-white disabled:bg-gray-500 disabled:cursor-not-allowed";
     const commonInputDisabledState = conversationState === 'FINISHED' || isTyping || status !== 'connected' || isConversationFinished || (isManualMode && !activeChatId);
@@ -1029,10 +1050,21 @@ const WhatsAppView = ({ currentUser, status, setStatus, services, clients, appoi
                 </div>
             ) : ( // loading
                  <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
-                    <QrCodeIcon className="w-48 h-48 text-white mb-4 animate-pulse"/>
-                    <h3 className="text-xl font-bold text-white">Aguardando Conexão</h3>
-                    <p className="text-gray-400 mt-2 max-w-md">Verifique os logs do seu servidor na <span className="font-semibold text-white">Render</span>. Um QR Code deve aparecer para ser escaneado com o WhatsApp do seu celular.</p>
-                    <p className="text-yellow-400 mt-4 text-sm">A tela será atualizada automaticamente assim que a conexão for estabelecida.</p>
+                    {qrCodeData ? (
+                        <>
+                             <h3 className="text-xl font-bold text-white mb-4">Escaneie para Conectar</h3>
+                             <div className="p-4 bg-white rounded-lg">
+                                 <img src={qrCodeData} alt="WhatsApp QR Code" className="w-64 h-64" />
+                             </div>
+                             <p className="text-gray-400 mt-4 max-w-md">Abra o WhatsApp no seu celular, vá em 'Aparelhos conectados' e escaneie o código acima.</p>
+                        </>
+                    ) : (
+                        <>
+                            <ArrowPathIcon className="w-16 h-16 text-white mb-4 animate-spin"/>
+                            <h3 className="text-xl font-bold text-white">Aguardando QR Code...</h3>
+                            <p className="text-gray-400 mt-2 max-w-md">O sistema está inicializando. O QR Code para conectar seu WhatsApp aparecerá aqui em breve.</p>
+                        </>
+                    )}
                 </div>
             )}
         </div>
@@ -2145,29 +2177,6 @@ const App = () => {
     const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: File }[]>([]);
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
     const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('disconnected');
-
-    useEffect(() => {
-        if (!currentUser) return;
-    
-        const eventSource = new EventSource('/api/whatsapp/status-stream');
-    
-        eventSource.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            setWhatsAppStatus(data.isConnected ? 'connected' : 'loading');
-        };
-    
-        eventSource.onerror = () => {
-            setWhatsAppStatus('disconnected');
-            eventSource.close();
-        };
-    
-        // Cleanup function to close the connection when the component unmounts
-        // or when the user logs out.
-        return () => {
-            eventSource.close();
-        };
-    }, [currentUser]);
-
 
     const addNotification = (message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
