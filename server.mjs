@@ -21,7 +21,8 @@ let currentQrCode = null; // Variável para armazenar o QR Code
 // --- WHATSAPP CLIENT SETUP (NÃO OFICIAL) ---
 console.log('Inicializando cliente WhatsApp...');
 const client = new Client({
-    authStrategy: new LocalAuth(), // Usa LocalAuth para salvar a sessão e evitar escanear sempre. ATENÇÃO: pode não ser persistente no Render.
+    // ATENÇÃO: A pasta 'wwebjs_auth' deve ser montada como um disco persistente no Render.
+    authStrategy: new LocalAuth({ dataPath: 'wwebjs_auth' }),
     puppeteer: {
         args: ['--no-sandbox', '--disable-setuid-sandbox'], // Necessário para rodar em ambientes como o Render
     },
