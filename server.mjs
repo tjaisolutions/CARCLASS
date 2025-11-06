@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
-import qrcode from 'qrcode-terminal';
+import qrcode from 'qrcode';
 // Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
@@ -29,18 +29,21 @@ const client = new Client({
     },
 });
 
-client.on('qr', (qr) => {
-    console.log('QR Code Recebido! Escaneie com seu celular.');
-    // Gera o QR code diretamente no terminal/log do Render.
-    qrcode.generate(qr, { small: true });
-    isWhatsappReady = false;
-    statusEmitter.emit('statusChange', { isConnected: false });
+client.on('qr', async (qr) => {
+    console.log('QR Code Recebido! Enviando para o frontend.');
+    try {
+        const qrCodeUrl = await qrcode.toDataURL(qr);
+        isWhatsappReady = false;
+        statusEmitter.emit('statusChange', { isConnected: false, qrCode: qrCodeUrl });
+    } catch (err) {
+        console.error('Falha ao gerar QR code como Data URL:', err);
+    }
 });
 
 client.on('ready', () => {
     console.log('Cliente WhatsApp está pronto e conectado!');
     isWhatsappReady = true;
-    statusEmitter.emit('statusChange', { isConnected: true });
+    statusEmitter.emit('statusChange', { isConnected: true, qrCode: null });
 });
 
 client.on('message', async (message) => {
@@ -55,7 +58,7 @@ client.on('message', async (message) => {
 client.on('disconnected', (reason) => {
     console.log('Cliente WhatsApp foi desconectado!', reason);
     isWhatsappReady = false;
-    statusEmitter.emit('statusChange', { isConnected: false });
+    statusEmitter.emit('statusChange', { isConnected: false, qrCode: null });
     // Tenta reinicializar para se reconectar
     client.initialize();
 });
@@ -90,10 +93,11 @@ app.get('/api/whatsapp/status-stream', (req, res) => {
     // Envia o status atual imediatamente
     sendStatus({ isConnected: isWhatsappReady });
 
-    statusEmitter.on('statusChange', sendStatus);
+    const statusChangeHandler = (status) => sendStatus(status);
+    statusEmitter.on('statusChange', statusChangeHandler);
 
     req.on('close', () => {
-        statusEmitter.removeListener('statusChange', sendStatus);
+        statusEmitter.removeListener('statusChange', statusChangeHandler);
         res.end();
     });
 });
