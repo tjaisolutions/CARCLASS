@@ -1,5 +1,5 @@
 {
   "name": "CAR CLASS",
-  "description": "Um aplicativo de gerenciamento para a estética automotiva CAR CLASS, permitindo o controle de agendamentos, clientes, veículos e serviços.",
+  "description": "Um aplicativo de gerenciamento completo para a estética automotiva CAR CLASS, com agendamentos, clientes, serviços e um chatbot integrado ao WhatsApp para automatizar o atendimento.",
   "requestFramePermissions": []
 }
