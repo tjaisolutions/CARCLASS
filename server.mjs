@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
+import qrcode from 'qrcode';
 // Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
@@ -26,10 +27,15 @@ const client = new Client({
     },
 });
 
-client.on('qr', (qr) => {
-    console.log('QR Code Recebido! Enviando para o frontend para ser escaneado.');
-    qrCodeData = qr; // Armazena o QR Code para a API
-    isWhatsappReady = false;
+client.on('qr', async (qr) => {
+    console.log('QR Code Recebido! Gerando Data URL para o frontend.');
+    try {
+        qrCodeData = await qrcode.toDataURL(qr); // Converte o QR para um Data URL de imagem
+        isWhatsappReady = false;
+    } catch (err) {
+        console.error('Falha ao gerar QR code data URL', err);
+        qrCodeData = null;
+    }
 });
 
 client.on('ready', () => {
