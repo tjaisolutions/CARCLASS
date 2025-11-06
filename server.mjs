@@ -1,43 +1,80 @@
-
-
-
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
+import qrcode from 'qrcode-terminal';
+import { Client, LocalAuth } from 'whatsapp-web.js';
 
 // --- SETUP ---
-// Como estamos usando módulos ES6 (type: "module" no package.json), __dirname não está disponível diretamente.
-// Este código recria a funcionalidade de __dirname.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 3001;
+let isWhatsappReady = false;
+
+// --- WHATSAPP CLIENT SETUP (NÃO OFICIAL) ---
+console.log('Inicializando cliente WhatsApp...');
+const client = new Client({
+    authStrategy: new LocalAuth(), // Usa LocalAuth para salvar a sessão e evitar escanear sempre. ATENÇÃO: pode não ser persistente no Render.
+    puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox'], // Necessário para rodar em ambientes como o Render
+    },
+});
+
+client.on('qr', (qr) => {
+    console.log('QR Code Recebido! Escaneie com seu celular.');
+    // Gera o QR code diretamente no terminal/log do Render.
+    qrcode.generate(qr, { small: true });
+    isWhatsappReady = false;
+});
+
+client.on('ready', () => {
+    console.log('Cliente WhatsApp está pronto e conectado!');
+    isWhatsappReady = true;
+});
+
+client.on('message', async (message) => {
+    console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
+    // A lógica do seu chatbot começaria aqui.
+    // Por exemplo, uma resposta simples:
+    if (message.body.toLowerCase() === 'oi') {
+        await message.reply('Olá! Bem-vindo à CAR CLASS. Como posso ajudar?');
+    }
+});
+
+client.on('disconnected', (reason) => {
+    console.log('Cliente WhatsApp foi desconectado!', reason);
+    isWhatsappReady = false;
+    // Tenta reinicializar para se reconectar
+    client.initialize();
+});
+
+// Inicializa o cliente. Isso vai disparar o evento 'qr' se não estiver autenticado.
+client.initialize().catch(err => console.error('Erro ao inicializar WhatsApp Client:', err));
+
 
 // --- MIDDLEWARE ---
-// Permite que o servidor entenda requisições com corpo em JSON.
 app.use(express.json());
-// Configura o 'multer' para processar uploads de arquivos, armazenando-os em memória.
 const upload = multer({ storage: multer.memoryStorage() });
 
 // --- CONFIGURAÇÃO DA API GEMINI ---
-// A chave de API é lida de forma segura das variáveis de ambiente do servidor.
 const apiKey = process.env.API_KEY;
 if (!apiKey) {
   console.error("ERRO: A variável de ambiente API_KEY não foi definida no servidor.");
-  // Em um ambiente de produção, é melhor encerrar o processo se a chave não estiver disponível.
-  // process.exit(1); 
 }
-// Inicializa o cliente da API do GenAI. Só é feito uma vez.
 const ai = new GoogleGenAI({ apiKey });
 
 // --- ROTAS DA API ---
 
+// NOVO: Endpoint para o frontend verificar o status da conexão.
+app.get('/api/whatsapp/status', (req, res) => {
+    res.json({ isConnected: isWhatsappReady });
+});
+
 // Endpoint para o chatbot de seleção de serviço.
-// Fix: Removed TypeScript type annotations from request and response objects.
 app.post('/api/chat', async (req, res) => {
   const { userInput, services } = req.body;
 
@@ -97,9 +134,7 @@ Com base na mensagem, responda APENAS com um objeto JSON válido com este format
 });
 
 // Endpoint para processar upload de catálogo de serviços (PDF/JPG).
-// Fix: Removed TypeScript type annotations and type casting.
 app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) => {
-  // Fix: Access `req.file` directly as Node.js doesn't understand TypeScript casting.
   const file = req.file;
   if (!file) {
     return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
@@ -155,13 +190,8 @@ app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) 
 });
 
 // --- SERVINDO O FRONTEND ---
-// Aponta para a pasta 'dist', que contém a versão de produção do seu app React.
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Rota "catch-all". Qualquer requisição que não seja para a API ou um arquivo estático
-// (como .css, .js, .png) será redirecionada para o index.html. Isso é crucial para
-// que o roteamento do lado do cliente (client-side routing) do React funcione.
-// Fix: Removed TypeScript type annotations from request and response objects.
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
