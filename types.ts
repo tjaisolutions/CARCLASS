@@ -15,7 +15,7 @@ export interface Car {
 }
 
 export interface MonthlyPlan {
-  id: string;
+  id:string;
   name: string;
   price: number; // in BRL
   includedServices: {
@@ -89,6 +89,7 @@ export interface ChatMessageData {
   sender: 'Cliente' | 'CAR CLASS';
   isBot: boolean;
   content: React.ReactNode;
+  operatorName?: string;
 }
 
 export interface ConversationLog {
@@ -96,4 +97,27 @@ export interface ConversationLog {
   clientId: string;
   timestamp: Date;
   messages: ChatMessageData[];
+}
+
+// --- NOVOS TIPOS PARA GERENCIAMENTO DE USUÁRIOS ---
+
+export type UserRole = 'owner' | 'employee';
+
+export const ALL_TABS = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'agenda', label: 'Agenda' },
+    { id: 'clients', label: 'Clientes' },
+    { id: 'services', label: 'Serviços' },
+    { id: 'whatsapp', label: 'WhatsApp' },
+    { id: 'settings', label: 'Ajustes' }
+];
+
+export interface User {
+  id: string;
+  username: string;
+  password; string; // In a real app, this should be a hash
+  role: UserRole;
+  permissions: {
+    [tabId: string]: boolean;
+  };
 }
