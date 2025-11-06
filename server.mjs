@@ -8,6 +8,7 @@ import qrcode from 'qrcode-terminal';
 // Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
+import { EventEmitter } from 'events';
 
 // --- SETUP ---
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +17,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = process.env.PORT || 3001;
 let isWhatsappReady = false;
+const statusEmitter = new EventEmitter();
+
 
 // --- WHATSAPP CLIENT SETUP (NÃO OFICIAL) ---
 console.log('Inicializando cliente WhatsApp...');
@@ -31,11 +34,13 @@ client.on('qr', (qr) => {
     // Gera o QR code diretamente no terminal/log do Render.
     qrcode.generate(qr, { small: true });
     isWhatsappReady = false;
+    statusEmitter.emit('statusChange', { isConnected: false });
 });
 
 client.on('ready', () => {
     console.log('Cliente WhatsApp está pronto e conectado!');
     isWhatsappReady = true;
+    statusEmitter.emit('statusChange', { isConnected: true });
 });
 
 client.on('message', async (message) => {
@@ -50,6 +55,7 @@ client.on('message', async (message) => {
 client.on('disconnected', (reason) => {
     console.log('Cliente WhatsApp foi desconectado!', reason);
     isWhatsappReady = false;
+    statusEmitter.emit('statusChange', { isConnected: false });
     // Tenta reinicializar para se reconectar
     client.initialize();
 });
@@ -70,6 +76,28 @@ if (!apiKey) {
 const ai = new GoogleGenAI({ apiKey });
 
 // --- ROTAS DA API ---
+
+app.get('/api/whatsapp/status-stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const sendStatus = (status) => {
+        res.write(`data: ${JSON.stringify(status)}\n\n`);
+    };
+
+    // Envia o status atual imediatamente
+    sendStatus({ isConnected: isWhatsappReady });
+
+    statusEmitter.on('statusChange', sendStatus);
+
+    req.on('close', () => {
+        statusEmitter.removeListener('statusChange', sendStatus);
+        res.end();
+    });
+});
+
 
 app.get('/api/whatsapp/status', (req, res) => {
     res.json({ isConnected: isWhatsappReady });
