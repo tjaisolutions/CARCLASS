@@ -237,15 +237,7 @@ app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) 
   }
 });
 
-// --- SERVINDO O FRONTEND ---
-app.use(express.static(path.join(__dirname, 'dist')));
-
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
-
-
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 app.listen(port, () => {
-  console.log(`Servidor unificado (Frontend + Backend) rodando em http://localhost:${port}`);
+  console.log(`Servidor de API rodando em http://localhost:${port}`);
 });
