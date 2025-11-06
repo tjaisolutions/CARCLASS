@@ -2,6 +2,8 @@
 
 
 
+
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage } from './types';
@@ -500,9 +502,9 @@ const ImageAttachment = ({ file }: { file: File }) => {
 
 const WhatsAppConnectionStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
     const statusConfig = {
-        connected: { text: 'Conectado 24/7', color: 'text-green-400', iconColor: 'text-green-500' },
+        connected: { text: 'Conectado', color: 'text-green-400', iconColor: 'text-green-500' },
         disconnected: { text: 'Desconectado', color: 'text-red-400', iconColor: 'text-red-500' },
-        loading: { text: 'Conectando...', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
+        loading: { text: 'Aguardando QR Code', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
     };
     const currentStatus = statusConfig[status];
 
@@ -536,7 +538,7 @@ type TempAppointmentData = {
     paymentMethod?: Appointment['paymentMethod'];
 };
 
-const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, onClientUpdated, onAppointmentFinalized, onAppointmentRescheduled, onAppointmentCancelled, operatingHours, onConversationFinished, catalogFiles, monthlyPlans, clientPlanUsages, conversationLogs, onConnect }: { status: 'connected' | 'disconnected' | 'loading'; services: Service[]; clients: Client[]; appointments: Appointment[]; onClientAdded: (client: Omit<Client, 'id'>) => string; onClientUpdated: (client: Client) => void; onAppointmentFinalized: (data: TempAppointmentData) => void; onAppointmentRescheduled: (id: string, date: string, time: string) => void; onAppointmentCancelled: (id: string) => void; operatingHours: OperatingHours; onConversationFinished: (log: ConversationLog) => void; catalogFiles: { id: string; file: File }[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; conversationLogs: ConversationLog[]; onConnect: () => void; }) => {
+const WhatsAppView = ({ status, setStatus, services, clients, appointments, onClientAdded, onClientUpdated, onAppointmentFinalized, onAppointmentRescheduled, onAppointmentCancelled, operatingHours, onConversationFinished, catalogFiles, monthlyPlans, clientPlanUsages, conversationLogs }: { status: 'connected' | 'disconnected' | 'loading'; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; services: Service[]; clients: Client[]; appointments: Appointment[]; onClientAdded: (client: Omit<Client, 'id'>) => string; onClientUpdated: (client: Client) => void; onAppointmentFinalized: (data: TempAppointmentData) => void; onAppointmentRescheduled: (id: string, date: string, time: string) => void; onAppointmentCancelled: (id: string) => void; operatingHours: OperatingHours; onConversationFinished: (log: ConversationLog) => void; catalogFiles: { id: string; file: File }[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; conversationLogs: ConversationLog[]; }) => {
     const [messages, setMessages] = useState<ChatMessageData[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [userInput, setUserInput] = useState('');
@@ -1433,18 +1435,18 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
             ) : status === 'disconnected' ? (
                 <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
                     <ChatBubbleOvalLeftEllipsisIcon className="w-16 h-16 text-gray-500 mb-4"/>
-                    <h3 className="text-xl font-bold text-white">Conecte-se ao WhatsApp</h3>
-                    <p className="text-gray-400 mt-2 max-w-md mb-6">Inicie o serviço de atendimento 24/7 para visualizar e gerenciar as conversas com os clientes.</p>
-                    <button onClick={onConnect} className="bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-6 rounded-md flex items-center gap-2 text-lg">
-                        <PhoneIcon className="w-6 h-6"/> Conectar
+                    <h3 className="text-xl font-bold text-white">Conexão com WhatsApp Perdida</h3>
+                    <p className="text-gray-400 mt-2 max-w-md mb-6">O serviço está tentando se reconectar automaticamente. Verifique os logs do servidor para mais detalhes.</p>
+                     <button onClick={async () => { setStatus('loading'); await fetch('/api/whatsapp/status'); }} className="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3 px-6 rounded-md flex items-center gap-2 text-lg">
+                        <ArrowPathIcon className="w-6 h-6"/> Verificar Status
                     </button>
                 </div>
             ) : ( // loading
-                 <div className="flex-grow flex flex-col items-center justify-center text-center p-4 animate-pulse">
-                    <QrCodeIcon className="w-48 h-48 text-white mb-4"/>
+                 <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
+                    <QrCodeIcon className="w-48 h-48 text-white mb-4 animate-pulse"/>
                     <h3 className="text-xl font-bold text-white">Aguardando Conexão</h3>
-                    <p className="text-gray-400 mt-2 max-w-md">Abra o WhatsApp em seu celular e escaneie o QR Code que aparecerá no terminal do seu servidor (Render).</p>
-                    <p className="text-yellow-400 mt-4 text-sm">O sistema conectará automaticamente em alguns segundos...</p>
+                    <p className="text-gray-400 mt-2 max-w-md">Verifique os logs do seu servidor na <span className="font-semibold text-white">Render</span>. Um QR Code deve aparecer para ser escaneado com o WhatsApp do seu celular.</p>
+                    <p className="text-yellow-400 mt-4 text-sm">A tela será atualizada automaticamente assim que a conexão for estabelecida.</p>
                 </div>
             )}
         </div>
@@ -2461,15 +2463,32 @@ const App = () => {
     
     const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: File }[]>([]);
     
-    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>(
-        () => (localStorage.getItem('whatsappStatus') as 'connected' | null) || 'disconnected'
-    );
+    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('disconnected');
 
+    // Efeito para verificar o status da conexão com o backend periodicamente
     useEffect(() => {
-        if (whatsAppStatus !== 'loading') { // prevent saving 'loading' state on reload
-            localStorage.setItem('whatsappStatus', whatsAppStatus);
-        }
-    }, [whatsAppStatus]);
+        const checkStatus = async () => {
+            try {
+                const response = await fetch('/api/whatsapp/status');
+                const data = await response.json();
+                if (data.isConnected) {
+                    setWhatsAppStatus('connected');
+                } else {
+                    // Se não está conectado, pode estar aguardando QR ou desconectado.
+                    // A lógica do backend já mostra o QR no log, então aqui mostramos a tela de "loading".
+                    setWhatsAppStatus('loading'); 
+                }
+            } catch (error) {
+                console.error("Falha ao verificar status do WhatsApp:", error);
+                setWhatsAppStatus('disconnected');
+            }
+        };
+
+        checkStatus(); // Verifica imediatamente ao carregar
+        const intervalId = setInterval(checkStatus, 5000); // E depois a cada 5 segundos
+
+        return () => clearInterval(intervalId); // Limpa o intervalo quando o componente desmontar
+    }, []);
 
 
     const addNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -2606,15 +2625,6 @@ const App = () => {
             setServices(prev => prev.filter(s => s.sourceFileId !== fileIdToDelete));
             addNotification(`Arquivo "${fileName}" e seus serviços foram removidos.`);
         }
-    };
-    
-    const handleConnectWhatsApp = () => {
-        setWhatsAppStatus('loading');
-        // Simulate waiting for QR code scan in server logs
-        setTimeout(() => {
-            setWhatsAppStatus('connected');
-            addNotification('WhatsApp conectado com sucesso!');
-        }, 15000); // 15 seconds for user to "scan"
     };
 
     const handleStartService = (id: string) => {
@@ -2758,7 +2768,7 @@ const App = () => {
             case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
             case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
             case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView status={whatsAppStatus} onConnect={handleConnectWhatsApp} services={services} clients={clients} appointments={appointments} onClientAdded={handleAddClientFromWhatsApp} onClientUpdated={handleUpdateClientFromWhatsApp} onAppointmentFinalized={handleFinalizeAppointmentFromWhatsApp} onAppointmentRescheduled={handleRescheduleAppointmentFromWhatsApp} onAppointmentCancelled={handleCancelAppointmentFromWhatsApp} operatingHours={operatingHours} onConversationFinished={handleNewConversation} catalogFiles={catalogFiles} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} conversationLogs={conversationLogs} />;
+            case 'whatsapp': return <WhatsAppView status={whatsAppStatus} setStatus={setWhatsAppStatus} services={services} clients={clients} appointments={appointments} onClientAdded={handleAddClientFromWhatsApp} onClientUpdated={handleUpdateClientFromWhatsApp} onAppointmentFinalized={handleFinalizeAppointmentFromWhatsApp} onAppointmentRescheduled={handleRescheduleAppointmentFromWhatsApp} onAppointmentCancelled={handleCancelAppointmentFromWhatsApp} operatingHours={operatingHours} onConversationFinished={handleNewConversation} catalogFiles={catalogFiles} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} conversationLogs={conversationLogs} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
             case 'settings': return <SettingsView operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} credentials={credentials} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
