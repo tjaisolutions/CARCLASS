@@ -1,0 +1,5 @@
+{
+  "name": "CAR CLASS",
+  "description": "Um aplicativo de gerenciamento para a estética automotiva CAR CLASS, permitindo o controle de agendamentos, clientes, veículos e serviços.",
+  "requestFramePermissions": []
+}
