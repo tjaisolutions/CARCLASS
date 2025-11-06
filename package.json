@@ -15,9 +15,7 @@
     "multer": "^1.4.5-lts.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "whatsapp-web.js": "^1.23.0",
-    "qrcode": "^1.5.3",
-    "ws": "^8.17.0"
+    "whatsapp-web.js": "^1.23.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
