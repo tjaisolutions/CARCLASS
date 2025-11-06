@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import mongoose from 'mongoose';
+import { EventEmitter } from 'events'; // Importa o EventEmitter
 
 // Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
 import pkg from 'whatsapp-web.js';
@@ -15,50 +16,55 @@ import { MongoStore } from 'wwebjs-mongo';
 
 // --- SETUP ---
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(filename);
 
 const app = express();
 const port = process.env.PORT || 3001;
-let isWhatsappReady = false;
-let currentQrCode = null;
-let client; // Declarar o cliente no escopo superior para ser acessível globalmente
+
+// --- GERENCIAMENTO DE ESTADO DO WHATSAPP ---
+let whatsAppStatus = {
+    isConnected: false,
+    qrCode: null,
+    message: 'Inicializando...'
+};
+const statusEmitter = new EventEmitter(); // Cria o notificador de status
+
+let client; // Declarar o cliente no escopo superior
 
 // --- MONGODB CONNECTION ---
 const MONGO_URI = process.env.MONGO_URI;
 if (!MONGO_URI) {
     console.error("ERRO: A variável de ambiente MONGO_URI não foi definida no servidor.");
-    process.exit(1); // Encerra se não houver conexão com o DB
+    process.exit(1);
 }
 
-console.log('Conectando ao MongoDB...');
-mongoose.connect(MONGO_URI).then(() => {
-    console.log('MongoDB conectado com sucesso.');
+const initializeWhatsApp = () => {
+    console.log('Inicializando cliente WhatsApp com RemoteAuth...');
     
+    // Certifique-se de que a conexão mongoose está disponível
     const store = new MongoStore({ mongoose: mongoose });
 
-    // --- WHATSAPP CLIENT SETUP (USANDO REMOTE AUTH) ---
-    console.log('Inicializando cliente WhatsApp com RemoteAuth...');
-    // Atribui a instância ao cliente declarado no escopo superior
     client = new Client({
         authStrategy: new RemoteAuth({
             store: store,
-            backupSyncIntervalMs: 300000, // Salva a sessão no DB a cada 5 minutos
+            backupSyncIntervalMs: 300000,
         }),
         puppeteer: {
-            args: ['--no-sandbox', '--disable-setuid-sandbox'], // Necessário para rodar em ambientes como o Render
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            headless: true, // Garante que rode em modo headless no servidor
         },
     });
 
     client.on('qr', (qr) => {
-        console.log('QR Code Recebido! Escaneie no frontend do aplicativo.');
-        currentQrCode = qr;
-        isWhatsappReady = false;
+        console.log('QR Code Recebido!');
+        whatsAppStatus = { isConnected: false, qrCode: qr, message: 'Escaneie o QR Code' };
+        statusEmitter.emit('statusChange'); // Notifica que o status mudou
     });
 
     client.on('ready', () => {
         console.log('Cliente WhatsApp está pronto e conectado!');
-        isWhatsappReady = true;
-        currentQrCode = null;
+        whatsAppStatus = { isConnected: true, qrCode: null, message: 'Conectado' };
+        statusEmitter.emit('statusChange'); // Notifica que o status mudou
     });
     
     client.on('remote_session_saved', () => {
@@ -74,20 +80,24 @@ mongoose.connect(MONGO_URI).then(() => {
 
     client.on('disconnected', (reason) => {
         console.log('Cliente WhatsApp foi desconectado!', reason);
-        isWhatsappReady = false;
-        currentQrCode = null;
+        whatsAppStatus = { isConnected: false, qrCode: null, message: 'Desconectado' };
+        statusEmitter.emit('statusChange'); // Notifica que o status mudou
         // Tenta reinicializar para reconectar automaticamente
+        console.log('Tentando reconectar...');
         client.initialize().catch(err => console.error('Erro ao RE-inicializar WhatsApp Client:', err));
     });
 
-    // Inicializa o cliente.
     client.initialize().catch(err => console.error('Erro ao inicializar WhatsApp Client:', err));
+};
 
+console.log('Conectando ao MongoDB...');
+mongoose.connect(MONGO_URI).then(() => {
+    console.log('MongoDB conectado com sucesso.');
+    initializeWhatsApp(); // Inicializa o WhatsApp somente após conectar ao DB
 }).catch(err => {
     console.error('Falha ao conectar ao MongoDB', err);
     process.exit(1);
 });
-
 
 // --- MIDDLEWARE ---
 app.use(express.json());
@@ -103,7 +113,34 @@ const ai = new GoogleGenAI({ apiKey });
 // --- ROTAS DA API ---
 
 app.get('/api/whatsapp/status', (req, res) => {
-    res.json({ isConnected: isWhatsappReady, qrCode: currentQrCode });
+    // Se já estiver conectado, responde imediatamente
+    if (whatsAppStatus.isConnected) {
+        return res.json(whatsAppStatus);
+    }
+    
+    // Se não, espera por uma mudança de status por até 25 segundos
+    const wait forStatusChange = () => {
+        res.json(whatsAppStatus);
+        clearTimeout(timeout);
+    };
+
+    const timeout = setTimeout(() => {
+        statusEmitter.off('statusChange', waitForStatusChange);
+        res.json(whatsAppStatus); // Responde com o status atual se o tempo esgotar
+    }, 25000); // 25 segundos de timeout
+
+    statusEmitter.once('statusChange', waitForStatusChange);
+});
+
+app.post('/api/whatsapp/reconnect', (req, res) => {
+    if (client) {
+        console.log("Recebida solicitação de reconexão do frontend.");
+        whatsAppStatus = { isConnected: false, qrCode: null, message: 'Reconectando...' };
+        res.status(202).json({ message: 'Tentativa de reconexão iniciada.' });
+        client.initialize().catch(err => console.error('Erro ao re-inicializar via API:', err));
+    } else {
+        res.status(503).json({ error: 'Cliente não inicializado.' });
+    }
 });
 
 app.post('/api/whatsapp/send-message', async (req, res) => {
@@ -111,12 +148,10 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
     if (!chatId || !message) {
         return res.status(400).json({ error: 'chatId e message são obrigatórios.' });
     }
-    // Verifica se o cliente está pronto e inicializado
-    if (!isWhatsappReady || !client) {
+    if (!whatsAppStatus.isConnected || !client) {
         return res.status(503).json({ error: 'Cliente WhatsApp não está pronto.' });
     }
     try {
-        // Usa a variável 'client' do escopo superior que foi corrigida
         await client.sendMessage(chatId, message);
         res.status(200).json({ success: true });
     } catch (e) {
@@ -244,7 +279,6 @@ app.use(express.static(path.join(__dirname, 'dist')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
-
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 app.listen(port, () => {
