@@ -4,11 +4,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
-import qrcode from 'qrcode';
 // Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
-import { EventEmitter } from 'events';
 
 // --- SETUP ---
 const __filename = fileURLToPath(import.meta.url);
@@ -17,8 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = process.env.PORT || 3001;
 let isWhatsappReady = false;
-const statusEmitter = new EventEmitter();
-
+let qrCodeData = null; // Variável para armazenar o QR Code para o frontend
 
 // --- WHATSAPP CLIENT SETUP (NÃO OFICIAL) ---
 console.log('Inicializando cliente WhatsApp...');
@@ -29,21 +26,16 @@ const client = new Client({
     },
 });
 
-client.on('qr', async (qr) => {
-    console.log('QR Code Recebido! Enviando para o frontend.');
-    try {
-        const qrCodeUrl = await qrcode.toDataURL(qr);
-        isWhatsappReady = false;
-        statusEmitter.emit('statusChange', { isConnected: false, qrCode: qrCodeUrl });
-    } catch (err) {
-        console.error('Falha ao gerar QR code como Data URL:', err);
-    }
+client.on('qr', (qr) => {
+    console.log('QR Code Recebido! Enviando para o frontend para ser escaneado.');
+    qrCodeData = qr; // Armazena o QR Code para a API
+    isWhatsappReady = false;
 });
 
 client.on('ready', () => {
     console.log('Cliente WhatsApp está pronto e conectado!');
     isWhatsappReady = true;
-    statusEmitter.emit('statusChange', { isConnected: true, qrCode: null });
+    qrCodeData = null; // Limpa o QR Code após a conexão
 });
 
 client.on('message', async (message) => {
@@ -58,7 +50,7 @@ client.on('message', async (message) => {
 client.on('disconnected', (reason) => {
     console.log('Cliente WhatsApp foi desconectado!', reason);
     isWhatsappReady = false;
-    statusEmitter.emit('statusChange', { isConnected: false, qrCode: null });
+    qrCodeData = null; // Limpa o QR Code na desconexão
     // Tenta reinicializar para se reconectar
     client.initialize();
 });
@@ -80,31 +72,8 @@ const ai = new GoogleGenAI({ apiKey });
 
 // --- ROTAS DA API ---
 
-app.get('/api/whatsapp/status-stream', (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    const sendStatus = (status) => {
-        res.write(`data: ${JSON.stringify(status)}\n\n`);
-    };
-
-    // Envia o status atual imediatamente
-    sendStatus({ isConnected: isWhatsappReady });
-
-    const statusChangeHandler = (status) => sendStatus(status);
-    statusEmitter.on('statusChange', statusChangeHandler);
-
-    req.on('close', () => {
-        statusEmitter.removeListener('statusChange', statusChangeHandler);
-        res.end();
-    });
-});
-
-
 app.get('/api/whatsapp/status', (req, res) => {
-    res.json({ isConnected: isWhatsappReady });
+    res.json({ isConnected: isWhatsappReady, qr: qrCodeData });
 });
 
 app.post('/api/whatsapp/send-message', async (req, res) => {
@@ -237,7 +206,15 @@ app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) 
   }
 });
 
+// --- SERVINDO O FRONTEND ---
+app.use(express.static(path.join(__dirname, 'dist')));
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 app.listen(port, () => {
-  console.log(`Servidor de API rodando em http://localhost:${port}`);
+  console.log(`Servidor unificado (Frontend + Backend) rodando em http://localhost:${port}`);
 });
