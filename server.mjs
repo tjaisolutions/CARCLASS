@@ -4,7 +4,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
-import qrcode from 'qrcode-terminal';
+// Fix: Use createRequire to robustly import the CommonJS 'qrcode-terminal' module.
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const qrcode = require('qrcode-terminal');
+
 // Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
