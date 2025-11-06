@@ -1021,10 +1021,10 @@ const WhatsAppView = ({ currentUser, status, qrCode, setStatus, services, client
             ) : status === 'disconnected' ? (
                 <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
                     <ChatBubbleOvalLeftEllipsisIcon className="w-16 h-16 text-gray-500 mb-4"/>
-                    <h3 className="text-xl font-bold text-white">Conexão com WhatsApp Perdida</h3>
-                    <p className="text-gray-400 mt-2 max-w-md mb-6">O serviço está tentando se reconectar automaticamente. Verifique os logs do servidor para mais detalhes.</p>
+                    <h3 className="text-xl font-bold text-white">WhatsApp Desconectado</h3>
+                    <p className="text-gray-400 mt-2 max-w-md mb-6">Clique em 'Reconectar' ou aguarde. Se o problema persistir, um novo QR Code pode ser necessário para estabelecer a conexão.</p>
                      <button onClick={async () => { setStatus('loading'); await fetch('/api/whatsapp/status'); }} className="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3 px-6 rounded-md flex items-center gap-2 text-lg">
-                        <ArrowPathIcon className="w-6 h-6"/> Tentar Novamente
+                        <ArrowPathIcon className="w-6 h-6"/> Reconectar
                     </button>
                 </div>
             ) : ( // loading
@@ -1041,8 +1041,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, setStatus, services, client
                         <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
                             <QrCodeIcon className="w-16 h-16 text-white mb-4 animate-pulse"/>
                             <h3 className="text-xl font-bold text-white">Aguardando Conexão</h3>
-                            <p className="text-gray-400 mt-2 max-w-md">Gerando QR Code... Verifique o status do servidor se demorar muito.</p>
-                            <p className="text-yellow-400 mt-4 text-sm">A tela será atualizada automaticamente.</p>
+                            <p className="text-gray-400 mt-2 max-w-md">Gerando QR Code... A tela será atualizada automaticamente assim que ele estiver pronto.</p>
                         </div>
                     )}
                 </>
