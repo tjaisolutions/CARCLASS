@@ -5,7 +5,9 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import qrcode from 'qrcode-terminal';
-import { Client, LocalAuth } from 'whatsapp-web.js';
+// Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
+import pkg from 'whatsapp-web.js';
+const { Client, LocalAuth } = pkg;
 
 // --- SETUP ---
 const __filename = fileURLToPath(import.meta.url);
