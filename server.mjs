@@ -1,3 +1,4 @@
+
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
@@ -8,7 +9,7 @@ import multer from 'multer';
 import mongoose from 'mongoose';
 import { EventEmitter } from 'events';
 import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth } = pkg;
+const { Client, LocalAuth } from pkg;
 import qrcode from 'qrcode-terminal';
 import chromium from '@sparticuz/chromium';
 
@@ -29,47 +30,73 @@ const port = process.env.PORT || 3001;
 const DB_FILE_PATH = path.join(DATA_DIR, 'db.json');
 let aistudio;
 
+const getInitialState = () => ({
+    clients: [],
+    services: [],
+    appointments: [],
+    monthlyPlans: [],
+    clientPlanUsages: [],
+    operatingHours: {
+        daysOpen: [1, 2, 3, 4, 5, 6],
+        availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
+    },
+    automatedMessages: [],
+    users: [{ 
+        id: 'user-owner', 
+        username: 'owner', 
+        password: '123', 
+        role: 'owner', 
+        permissions: {
+            dashboard: true,
+            agenda: true,
+            clients: true,
+            services: true,
+            whatsapp: true,
+            settings: true,
+        } 
+    }],
+    conversationLogs: [],
+    catalogFiles: [],
+});
+
+
 const loadDb = () => {
     if (fs.existsSync(DB_FILE_PATH)) {
-        console.log('[Persistence] Carregando dados do arquivo...');
-        const data = fs.readFileSync(DB_FILE_PATH, 'utf-8');
-        aistudio = JSON.parse(data);
+        try {
+            console.log('[Persistence] Carregando dados do arquivo...');
+            const data = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+            // Check for empty file to prevent crash
+            if (data.trim() === '') {
+                 console.warn('[Persistence] O arquivo de dados estava vazio. Iniciando com estado padrão.');
+                 aistudio = getInitialState();
+            } else {
+                aistudio = JSON.parse(data);
+            }
+        } catch (error) {
+            console.error('[Persistence] ERRO CRÍTICO ao ler ou analisar db.json:', error);
+            console.warn('[Persistence] O arquivo de dados pode estar corrompido.');
+            
+            // Backup the corrupted file
+            const backupPath = path.join(DATA_DIR, `db.corrupted.${Date.now()}.json`);
+            fs.copyFileSync(DB_FILE_PATH, backupPath);
+            console.warn(`[Persistence] Backup do arquivo corrompido salvo em: ${backupPath}`);
+
+            console.warn('[Persistence] Iniciando com estado padrão para evitar crash.');
+            aistudio = getInitialState();
+        }
     } else {
         console.log('[Persistence] Nenhum arquivo de dados encontrado, iniciando com estado padrão.');
-        aistudio = {
-            clients: [],
-            services: [],
-            appointments: [],
-            monthlyPlans: [],
-            clientPlanUsages: [],
-            operatingHours: {
-                daysOpen: [1, 2, 3, 4, 5, 6],
-                availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
-            },
-            automatedMessages: [],
-            users: [{ 
-                id: 'user-owner', 
-                username: 'owner', 
-                password: '123', 
-                role: 'owner', 
-                permissions: {
-                    dashboard: true,
-                    agenda: true,
-                    clients: true,
-                    services: true,
-                    whatsapp: true,
-                    settings: true,
-                } 
-            }],
-            conversationLogs: [],
-            catalogFiles: [],
-        };
+        aistudio = getInitialState();
     }
 };
 
 const saveDb = () => {
-    console.log('[Persistence] Salvando dados no arquivo...');
-    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(aistudio, null, 2));
+    try {
+        console.log('[Persistence] Salvando dados no arquivo...');
+        fs.writeFileSync(DB_FILE_PATH, JSON.stringify(aistudio, null, 2));
+    } catch (error) {
+        console.error('[Persistence] ERRO ao salvar dados:', error);
+    }
 };
 
 loadDb();
@@ -227,12 +254,16 @@ async function startWhatsAppBot() {
             '--disable-gpu'
         ],
       },
+      webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+      }
     });
     
     whatsappClient.on('qr', (qr) => {
       console.log('[WhatsApp] QR Code recebido, gerando para o terminal e frontend.');
       qrcode.generate(qr, { small: true });
-      // A biblioteca já fornece a string base64, mas precisamos extraí-la do data URI.
+      // The library QR is a full data URI, we just need the base64 part.
       connectionStatus.qrCode = qr.replace('data:image/png;base64,', '');
       connectionStatus.message = 'Por favor, escaneie o QR Code.';
     });
@@ -250,8 +281,8 @@ async function startWhatsAppBot() {
         connectionStatus.isConnected = false;
         connectionStatus.qrCode = null;
         connectionStatus.message = 'Desconectado. Tentando reconectar...';
-        // A biblioteca tenta reconectar automaticamente, mas podemos forçar um reinício se necessário.
-        startWhatsAppBot(); 
+        // The library might try to reconnect automatically, but we can also trigger a restart.
+        setTimeout(startWhatsAppBot, 15000); // Wait 15s before trying to restart
     });
 
     whatsappClient.on('message', (message) => {
@@ -269,11 +300,11 @@ async function startWhatsAppBot() {
     await whatsappClient.initialize();
 
   } catch (error) {
-    console.error('Erro CRÍTICO ao inicializar o cliente WhatsApp:', error.message);
+    console.error('Erro CRÍTICO ao inicializar o cliente WhatsApp:', error);
     connectionStatus.isConnected = false;
     connectionStatus.qrCode = null;
-    connectionStatus.message = `Erro: ${error.message}`;
-    // Tenta reiniciar após um tempo em caso de falha crítica na inicialização
+    connectionStatus.message = `Erro na inicialização. Verifique os logs.`;
+    // Try to restart after a longer delay on critical failure.
     setTimeout(startWhatsAppBot, 60000); 
   }
 }
@@ -284,20 +315,21 @@ app.get('/api/whatsapp/status', (req, res) => {
 
 app.get('/api/whatsapp/messages', (req, res) => {
     res.json(incomingMessages);
-    incomingMessages.length = 0; // Limpa a fila após o front-end consumir
+    incomingMessages.length = 0; // Clear the queue after the frontend consumes it
 });
 
 app.post('/api/whatsapp/reconnect', async (req, res) => {
     if (whatsappClient) {
         try {
+            console.log("[WhatsApp] Tentando destruir cliente existente para reconectar...");
             await whatsappClient.destroy();
         } catch (e) {
-            console.warn("Erro ao destruir cliente existente.", e.message);
+            console.warn("[WhatsApp] Erro ao destruir cliente. Pode já estar destruído.", e.message);
         }
     }
     whatsappClient = null;
     connectionStatus.isConnected = false;
-    connectionStatus.message = 'Reconectando...';
+    connectionStatus.message = 'Reconectando manualmente...';
     startWhatsAppBot();
     res.status(200).send({ message: 'Processo de reconexão iniciado.' });
 });
