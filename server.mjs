@@ -10,7 +10,8 @@ import { EventEmitter } from 'events';
 // Fix: Robust import for CommonJS module 'whatsapp-web.js' to prevent SyntaxError on deploy
 import WhatsAppWeb from 'whatsapp-web.js';
 const { Client, LocalAuth } = WhatsAppWeb;
-import qrcode from 'qrcode-terminal';
+import qrcodeTerminal from 'qrcode-terminal';
+import qrcode from 'qrcode';
 import chromium from '@sparticuz/chromium';
 
 
@@ -260,12 +261,18 @@ async function startWhatsAppBot() {
       }
     });
     
-    whatsappClient.on('qr', (qr) => {
+    whatsappClient.on('qr', async (qr) => {
       console.log('[WhatsApp] QR Code recebido, gerando para o terminal e frontend.');
-      qrcode.generate(qr, { small: true });
-      // The library QR is a full data URI, we just need the base64 part.
-      connectionStatus.qrCode = qr.replace('data:image/png;base64,', '');
-      connectionStatus.message = 'Por favor, escaneie o QR Code.';
+      qrcodeTerminal.generate(qr, { small: true });
+      try {
+        const dataUrl = await qrcode.toDataURL(qr);
+        connectionStatus.qrCode = dataUrl.replace('data:image/png;base64,', '');
+        connectionStatus.message = 'Por favor, escaneie o QR Code.';
+      } catch (err) {
+        console.error('[QRCode] Erro ao gerar a imagem do QR Code:', err);
+        connectionStatus.qrCode = null;
+        connectionStatus.message = 'Erro ao gerar QR Code.';
+      }
     });
     
     whatsappClient.on('ready', async () => {
