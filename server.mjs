@@ -1,3 +1,4 @@
+
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
@@ -149,14 +150,50 @@ app.post('/api/chat', async (req, res) => {
 
 // --- WHATSAPP BOT ---
 const WHATSAPP_SESSION_ID = 'CARCLASS-SESSION';
+let whatsappClient = null;
+const incomingMessages = []; // Fila para mensagens recebidas
+
 const connectionStatus = {
   isConnected: false,
   qrCode: null,
   message: 'Serviço do WhatsApp não iniciado.',
 };
-let whatsappClient = null;
 
-// This function will be called to initialize the bot
+const syncContacts = async (client) => {
+    try {
+        console.log('[WhatsApp] Sincronizando contatos...');
+        const contacts = await client.getAllContacts();
+        let newClientsCount = 0;
+        for (const contact of contacts) {
+            if (contact.isMyContact && contact.id.user) {
+                const contactNumber = contact.id.user;
+                const clientExists = aistudio.clients.some(c => c.whatsapp.includes(contactNumber));
+
+                if (!clientExists) {
+                    const newClient = {
+                        id: `c${Date.now()}${Math.random().toString(16).slice(2)}`,
+                        name: contact.name || contact.pushname || `Contato ${contactNumber}`,
+                        whatsapp: contactNumber,
+                        cpf: '',
+                        cars: [],
+                    };
+                    aistudio.clients.push(newClient);
+                    newClientsCount++;
+                }
+            }
+        }
+        if (newClientsCount > 0) {
+            console.log(`[WhatsApp] ${newClientsCount} novo(s) cliente(s) adicionado(s) a partir dos contatos.`);
+            saveDb();
+        } else {
+            console.log('[WhatsApp] Nenhum novo contato para sincronizar.');
+        }
+        connectionStatus.message = `Conectado! ${aistudio.clients.length} clientes no total.`;
+    } catch (error) {
+        console.error('[WhatsApp] Erro ao sincronizar contatos:', error.message);
+    }
+}
+
 async function startWhatsAppBot() {
   console.log('[WhatsApp] Iniciando cliente...');
   connectionStatus.message = 'Iniciando o cliente wppconnect...';
@@ -168,16 +205,19 @@ async function startWhatsAppBot() {
       session: WHATSAPP_SESSION_ID,
       catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
         console.log('[WhatsApp] Novo QR Code gerado. Tentativa:', attempts);
-        connectionStatus.qrCode = base64Qr; // Passa a imagem base64 diretamente para o front-end
+        connectionStatus.qrCode = base64Qr;
         connectionStatus.message = 'Aguardando leitura do QR Code.';
       },
-      statusFind: (statusSession, session) => {
+      statusFind: async (statusSession, session) => {
         console.log(`[WhatsApp] Status da sessão: ${statusSession} (${session})`);
         connectionStatus.message = `Status da sessão: ${statusSession}`;
         if (statusSession === 'isLogged' || statusSession === 'qrReadSuccess' || statusSession === 'chatsAvailable') {
-            connectionStatus.isConnected = true;
-            connectionStatus.qrCode = null;
-            connectionStatus.message = 'Cliente conectado com sucesso!';
+            if (!connectionStatus.isConnected) { // Run only on first connection
+                connectionStatus.isConnected = true;
+                connectionStatus.qrCode = null;
+                connectionStatus.message = 'Cliente conectado! Sincronizando contatos...';
+                await syncContacts(whatsappClient); // Sincroniza contatos após conectar
+            }
         }
         if (statusSession === 'notLogged' || statusSession === 'deviceNotConnected' || statusSession === 'desconnectedMobile') {
             connectionStatus.isConnected = false;
@@ -199,18 +239,22 @@ async function startWhatsAppBot() {
         ],
       },
       autoClose: 99999999,
-      // Fix: Add deviceName for better session stability.
       deviceName: 'CARCLASS_SERVER',
     });
 
     console.log('[WhatsApp] Cliente criado com sucesso!');
-    connectionStatus.isConnected = true;
-    connectionStatus.message = 'Conectado ao WhatsApp.';
-
+    
     whatsappClient.onMessage((message) => {
+        // Ignorar mensagens de status ou de grupos
+        if (message.isStatus || message.isGroupMsg || !message.body) {
+            return;
+        }
         console.log(`[WhatsApp] Mensagem recebida de ${message.from}: ${message.body}`);
-        // Aqui você pode adicionar a lógica para emitir um evento para o front-end
-        // ou processar a mensagem com o Gemini.
+        incomingMessages.push({
+            from: message.from,
+            body: message.body,
+            timestamp: message.timestamp,
+        });
     });
 
   } catch (error) {
@@ -218,17 +262,19 @@ async function startWhatsAppBot() {
     connectionStatus.isConnected = false;
     connectionStatus.qrCode = null;
     connectionStatus.message = `Erro: ${error.message}`;
-    // Try to restart after a delay
     setTimeout(startWhatsAppBot, 30000);
   }
 }
 
-// Endpoint para verificar o status da conexão
 app.get('/api/whatsapp/status', (req, res) => {
     res.json(connectionStatus);
 });
 
-// Endpoint para forçar a reconexão
+app.get('/api/whatsapp/messages', (req, res) => {
+    res.json(incomingMessages);
+    incomingMessages.length = 0; // Limpa a fila após o front-end consumir
+});
+
 app.post('/api/whatsapp/reconnect', async (req, res) => {
     if (whatsappClient) {
         try {
@@ -240,7 +286,7 @@ app.post('/api/whatsapp/reconnect', async (req, res) => {
     whatsappClient = null;
     connectionStatus.isConnected = false;
     connectionStatus.message = 'Reconectando...';
-    startWhatsAppBot(); // Inicia o processo novamente
+    startWhatsAppBot();
     res.status(200).send({ message: 'Processo de reconexão iniciado.' });
 });
 
@@ -264,8 +310,6 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
 
 
 // --- ROTA CATCH-ALL ---
-// Deve ser a última rota para não sobrescrever as rotas da API
-// Serve o index.html da pasta 'dist' para o carregamento inicial da SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
@@ -274,6 +318,5 @@ app.get('*', (req, res) => {
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
   console.log(`Diretório de dados: ${DATA_DIR}`);
-  // Inicia o bot do WhatsApp após o servidor Express estar no ar
   startWhatsAppBot();
 });
