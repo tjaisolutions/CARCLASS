@@ -552,17 +552,17 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
 
     const bottomRef = useRef<HTMLDivElement>(null);
 
-    const addMessage = (sender: 'Cliente' | 'CAR CLASS', content: React.ReactNode, options?: { isBot?: boolean; operatorName?: string }) => {
+    const addMessage = useCallback((sender: 'Cliente' | 'CAR CLASS', content: React.ReactNode, options?: { isBot?: boolean; operatorName?: string }) => {
         setMessages(prev => [...prev, { sender, content, isBot: options?.isBot ?? (sender === 'CAR CLASS'), operatorName: options?.operatorName }]);
-    };
+    }, []);
     
-    const thinkAndRespond = (responseFn: () => void, delay = 1000) => {
+    const thinkAndRespond = useCallback((responseFn: () => void, delay = 1000) => {
         setIsTyping(true);
         setTimeout(() => {
             setIsTyping(false);
             responseFn();
         }, delay);
-    };
+    }, []);
 
     const findNextAvailableDays = useCallback((count: number): Date[] => {
         const availableDays: Date[] = [];
@@ -586,7 +586,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         return operatingHours.availableTimes.filter(hour => !bookedSlots.includes(hour));
     }, [appointments, operatingHours]);
 
-    const startDateTimeSelection = () => {
+    const startDateTimeSelection = useCallback(() => {
         const nextDays = findNextAvailableDays(3);
         if (nextDays.length > 0) {
             const daySlotPairs = nextDays
@@ -619,7 +619,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             addMessage('CAR CLASS', <p>Desculpe, não encontramos nenhuma data disponível nos próximos dias. Por favor, entre em contato para agendarmos.</p>, { isBot: true });
             setConversationState('FINISHED');
         }
-    };
+    }, [findNextAvailableDays, getAvailableSlots, addMessage]);
     
     const finalizeAppointment = useCallback((finalData: TempAppointmentData) => {
         if (finalData.appointmentToChangeId) {
@@ -685,9 +685,9 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         
         onAppointmentFinalized(finalData);
         setConversationState('FINISHED');
-    }, [clients, services, appointments, onAppointmentFinalized, onAppointmentRescheduled]);
+    }, [clients, services, appointments, onAppointmentFinalized, onAppointmentRescheduled, addMessage]);
     
-    const handleSendManualMessage = async (e: React.FormEvent) => {
+    const handleSendManualMessage = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         if (!userInput.trim() || !activeChatId) return;
 
@@ -711,21 +711,9 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             // Optionally, add the message back to the input
             setUserInput(messageContent);
         }
-    };
+    }, [userInput, activeChatId, addMessage, currentUser, addNotification]);
 
-    const handleSendMessage = (e: React.FormEvent) => {
-        e.preventDefault();
-        if(isManualMode) {
-            handleSendManualMessage(e);
-            return;
-        }
-        if (!userInput.trim()) return;
-        addMessage('Cliente', <p>{userInput}</p>, { isBot: false });
-        processUserInput(userInput);
-        setUserInput('');
-    };
-    
-    const handleServiceSelectionLogic = async (userInput: string) => {
+    const handleServiceSelectionLogic = useCallback(async (userInput: string) => {
         setIsTyping(true);
 
         try {
@@ -758,9 +746,9 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             setIsTyping(false);
             addMessage('CAR CLASS', <p>Desculpe, tive um problema para entender sua resposta. Poderia digitar o nome ou código do serviço que deseja?</p>, { isBot: true });
         }
-    };
+    }, [services, addMessage, thinkAndRespond, startDateTimeSelection]);
 
-    const processUserInput = (input: string) => {
+    const processUserInput = useCallback((input: string) => {
         const normalizedInput = normalizeText(input);
 
         // A simple way to get the chatId. In a real app this would be more robust.
@@ -862,8 +850,36 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                  addMessage('CAR CLASS', <p>Obrigado! Se precisar de algo mais, é só chamar.</p>, { isBot: true });
                  setConversationState('FINISHED');
         }
-    }
+    }, [activeChatId, conversationState, thinkAndRespond, addMessage, clients, appointments, services, monthlyPlans, clientPlanUsages]);
+
+    const handleSendMessage = useCallback((e: React.FormEvent) => {
+        e.preventDefault();
+        if(isManualMode) {
+            handleSendManualMessage(e);
+            return;
+        }
+        if (!userInput.trim()) return;
+        addMessage('Cliente', <p>{userInput}</p>, { isBot: false });
+        processUserInput(userInput);
+        setUserInput('');
+    }, [isManualMode, handleSendManualMessage, userInput, addMessage, processUserInput]);
     
+    const handleResetConversation = useCallback(() => {
+        setMessages([]);
+        setIsTyping(false);
+        setConversationState('GREETING');
+        setTempData({ serviceIds: [] });
+        setIsConversationFinished(false);
+        setActiveConversationId('live');
+        setActiveChatId(null);
+        setIsManualMode(false);
+        
+        thinkAndRespond(() => {
+            addMessage('CAR CLASS', <p>Olá! Bem-vindo à <span className="font-bold">CAR CLASS</span>. Você já é nosso cliente? (Sim/Não)</p>, { isBot: true });
+            setConversationState('AWAITING_IS_CLIENT_RESPONSE');
+        }, 500);
+    }, [addMessage, thinkAndRespond]);
+
     useEffect(() => {
         if (conversationState === 'FINISHED' && !isConversationFinished) {
             const finalMessages = [...messages];
@@ -879,23 +895,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         }
     }, [conversationState, messages, userInput, onConversationFinished, isConversationFinished, tempData.clientId]);
 
-    const handleResetConversation = () => {
-        setMessages([]);
-        setIsTyping(false);
-        setConversationState('GREETING');
-        setTempData({ serviceIds: [] });
-        setIsConversationFinished(false);
-        setActiveConversationId('live');
-        setActiveChatId(null);
-        setIsManualMode(false);
-        
-        thinkAndRespond(() => {
-            addMessage('CAR CLASS', <p>Olá! Bem-vindo à <span className="font-bold">CAR CLASS</span>. Você já é nosso cliente? (Sim/Não)</p>, { isBot: true });
-            setConversationState('AWAITING_IS_CLIENT_RESPONSE');
-        }, 500);
-    };
-
-    const handleReconnect = async () => {
+    const handleReconnect = useCallback(async () => {
         setStatus('loading');
         try {
             await fetch('/api/whatsapp/reconnect', { method: 'POST' });
@@ -904,7 +904,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             console.error("Error triggering reconnect", error);
             setStatus('disconnected');
         }
-    };
+    }, [setStatus]);
 
     // New effect for polling messages
     useEffect(() => {
@@ -941,7 +941,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
 
         return () => clearInterval(intervalId);
 
-    }, [status, isConversationFinished, messages.length, clients]);
+    }, [status, isConversationFinished, messages.length, clients, handleResetConversation, addNotification, addMessage, processUserInput]);
 
 
     useEffect(() => {
@@ -952,8 +952,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             setConversationState('GREETING');
             setIsConversationFinished(false);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [status]);
+    }, [status, messages.length, handleResetConversation]);
     
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1557,15 +1556,15 @@ const DashboardView = ({ appointments, clients, services, monthlyPlans }: { appo
     }, [appointments, activeStartDate, activeEndDate]);
 
     // --- METRICS ---
-    const getRevenue = (apps: Appointment[]) => apps
+    const getRevenue = useCallback((apps: Appointment[]) => apps
         .flatMap(a => a.serviceIds.map(serviceId => services.find(s => s.id === serviceId)?.price || 0))
-        .reduce((sum, price) => sum + price, 0);
+        .reduce((sum, price) => sum + price, 0), [services]);
 
     const dailyRevenue = useMemo(() => {
         const todayStr = getToday();
         const todaysAppointments = appointments.filter(a => a.status === AppointmentStatus.Finished && a.date === todayStr);
         return getRevenue(todaysAppointments);
-    }, [appointments, services]);
+    }, [appointments, getRevenue]);
 
     const revenueForPeriod = getRevenue(filteredFinishedAppointments);
 
@@ -1613,7 +1612,7 @@ const DashboardView = ({ appointments, clients, services, monthlyPlans }: { appo
             data.push(monthRevenue);
         }
         return { labels, data };
-    }, [appointments, services]);
+    }, [appointments, getRevenue]);
 
     // Serviços Mais/Menos Vendidos (based on filter)
     const serviceCounts = filteredFinishedAppointments
@@ -2202,9 +2201,17 @@ const App = () => {
 
     const isPolling = useRef(false);
 
+    const addNotification = useCallback((message: string) => {
+         const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
+         setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
+    }, []);
+
     const loadData = useCallback(async () => {
         try {
             const response = await fetch('/api/data');
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
             const data = await response.json();
             setClients(data.clients || []);
             setServices(data.services || []);
@@ -2219,7 +2226,7 @@ const App = () => {
             console.error("Failed to load data from server:", error);
             addNotification("Erro: Não foi possível carregar os dados do servidor.");
         }
-    }, []);
+    }, [addNotification]);
     
     useEffect(() => {
         loadData();
@@ -2263,14 +2270,9 @@ const App = () => {
 
         return () => clearInterval(intervalId);
 
-    }, [currentUser, whatsAppStatus, loadData]);
-
-    const addNotification = (message: string) => {
-         const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
-         setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
-    };
+    }, [currentUser, whatsAppStatus, loadData, addNotification]);
     
-    const handleClientSave = (clientData: Omit<Client, 'id'> & { id?: string }) => {
+    const handleClientSave = useCallback((clientData: Omit<Client, 'id'> & { id?: string }) => {
          if (clientData.id) {
              setClients(prev => prev.map(c => c.id === clientData.id ? { ...c, ...clientData } as Client : c));
              addNotification(`Cliente "${clientData.name}" atualizado.`);
@@ -2280,15 +2282,15 @@ const App = () => {
              addNotification(`Novo cliente "${clientData.name}" adicionado.`);
          }
          setIsClientModalOpen(false);
-    };
+    }, [addNotification]);
 
-    const handleClientDelete = (id: string) => {
+    const handleClientDelete = useCallback((id: string) => {
          if (window.confirm('Tem certeza?')) {
              setClients(prev => prev.filter(c => c.id !== id));
          }
-    };
+    }, []);
     
-    const handleAppointmentSave = (appointmentData: Omit<Appointment, 'id'> & { id?: string }) => {
+    const handleAppointmentSave = useCallback((appointmentData: Omit<Appointment, 'id'> & { id?: string }) => {
         if (appointmentData.id) {
              setAppointments(prev => prev.map(a => a.id === appointmentData.id ? { ...a, ...appointmentData } as Appointment : a));
              addNotification(`Agendamento atualizado.`);
@@ -2298,51 +2300,54 @@ const App = () => {
             addNotification(`Novo agendamento criado para ${clients.find(c=>c.id === newAppointment.clientId)?.name}.`);
         }
         setIsAppointmentModalOpen(false);
-    };
+    }, [addNotification, clients]);
     
-    const handleAppointmentDelete = (id: string) => {
+    const handleAppointmentDelete = useCallback((id: string) => {
          if (window.confirm('Tem certeza?')) {
              setAppointments(prev => prev.filter(a => a.id !== id));
          }
-    };
+    }, []);
 
-    const handleServiceSave = (serviceData: Omit<Service, 'id'> & { id?: string }) => {
+    const handleServiceSave = useCallback((serviceData: Omit<Service, 'id'> & { id?: string }) => {
         if (serviceData.id) {
             setServices(prev => prev.map(s => s.id === serviceData.id ? { ...s, ...serviceData } as Service : s));
         } else {
             setServices(prev => [...prev, { ...serviceData, id: `s${Date.now()}` } as Service]);
         }
         setIsServiceModalOpen(false);
-    };
+    }, []);
 
-    const handleServiceDelete = (id: string) => {
+    const handleServiceDelete = useCallback((id: string) => {
         if (window.confirm('Tem certeza?')) {
             setServices(prev => prev.filter(s => s.id !== id));
         }
-    };
+    }, []);
 
-    const handleFileUpload = async (files: File[]) => {
+    const handleFileUpload = useCallback(async (files: File[]) => {
         setIsProcessingFile(true);
         // ... (implementation is the same)
         setIsProcessingFile(false);
-    };
+    }, []);
 
-    const handleFileDelete = (fileIdToDelete: string) => {
+    const handleFileDelete = useCallback((fileIdToDelete: string) => {
         if (window.confirm('Tem certeza?')) {
             setCatalogFiles(prev => prev.filter(f => f.id !== fileIdToDelete));
             setServices(prev => prev.filter(s => s.sourceFileId !== fileIdToDelete));
         }
-    };
+    }, []);
 
-    const handleStartService = (id: string) => setAppointments(prev => prev.map(app => app.id === id ? { ...app, status: AppointmentStatus.InProgress } : app));
-    const handleFinishService = (id: string) => setAppointments(prev => prev.map(app => app.id === id ? { ...app, status: AppointmentStatus.Finished } : app));
-    const handleAddClientFromWhatsApp = (clientData: Omit<Client, 'id'>) => {
+    const handleStartService = useCallback((id: string) => setAppointments(prev => prev.map(app => app.id === id ? { ...app, status: AppointmentStatus.InProgress } : app)), []);
+    const handleFinishService = useCallback((id: string) => setAppointments(prev => prev.map(app => app.id === id ? { ...app, status: AppointmentStatus.Finished } : app)), []);
+    
+    const handleAddClientFromWhatsApp = useCallback((clientData: Omit<Client, 'id'>) => {
          const newClient = { ...clientData, id: `c${Date.now()}` } as Client;
          setClients(prev => [...prev, newClient]);
          return newClient.id;
-     };
-    const handleUpdateClientFromWhatsApp = (clientData: Client) => setClients(prev => prev.map(c => c.id === clientData.id ? clientData : c));
-    const handleFinalizeAppointmentFromWhatsApp = (data: TempAppointmentData) => {
+     }, []);
+
+    const handleUpdateClientFromWhatsApp = useCallback((clientData: Client) => setClients(prev => prev.map(c => c.id === clientData.id ? clientData : c)), []);
+    
+    const handleFinalizeAppointmentFromWhatsApp = useCallback((data: TempAppointmentData) => {
          if (!data.clientId || !data.date || !data.time) return;
          let carId = data.carId;
          if (!carId && data.carModel && data.carPlate && data.clientId) {
@@ -2366,18 +2371,21 @@ const App = () => {
          };
          setAppointments(prev => [...prev, newAppointment]);
          addNotification(`Novo agendamento via WhatsApp.`);
-     };
-    const handleRescheduleAppointmentFromWhatsApp = (id: string, date: string, time: string) => setAppointments(prev => prev.map(app => app.id === id ? { ...app, date, time } : app));
-    const handleCancelAppointmentFromWhatsApp = (id: string) => setAppointments(prev => prev.filter(app => app.id !== id));
-    const handleSaveSettings = (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => {
+     }, [addNotification, clients, monthlyPlans]);
+    
+    const handleRescheduleAppointmentFromWhatsApp = useCallback((id: string, date: string, time: string) => setAppointments(prev => prev.map(app => app.id === id ? { ...app, date, time } : app)), []);
+    const handleCancelAppointmentFromWhatsApp = useCallback((id: string) => setAppointments(prev => prev.filter(app => app.id !== id)), []);
+    const handleSaveSettings = useCallback((settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => {
          setOperatingHours(settings.operatingHours);
          setAutomatedMessages(settings.automatedMessages);
          setMonthlyPlans(settings.monthlyPlans);
          setUsers(settings.users);
          addNotification("Configurações salvas com sucesso!");
-     };
-    const handleNewConversation = (log: ConversationLog) => setConversationLogs(prev => [log, ...prev.slice(0, 49)]);
-    const handleLogin = (username: string, passwordAttempt: string) => {
+     }, [addNotification]);
+    
+    const handleNewConversation = useCallback((log: ConversationLog) => setConversationLogs(prev => [log, ...prev.slice(0, 49)]), []);
+    
+    const handleLogin = useCallback((username: string, passwordAttempt: string) => {
         const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
         if (user && user.password === passwordAttempt) {
             setCurrentUser(user);
@@ -2385,21 +2393,24 @@ const App = () => {
         } else {
             setLoginError('Usuário ou senha inválidos.');
         }
-    };
-    const handleLogout = () => setCurrentUser(null);
-    const handleUserSave = (userData: Omit<User, 'id'> & { id?: string }) => {
+    }, [users]);
+
+    const handleLogout = useCallback(() => setCurrentUser(null), []);
+    
+    const handleUserSave = useCallback((userData: Omit<User, 'id'> & { id?: string }) => {
         if (userData.id) {
             setUsers(prev => prev.map(u => u.id === userData.id ? { ...u, ...userData, password: userData.password || u.password } as User : u));
         } else {
             setUsers(prev => [...prev, { ...userData, id: `user-${Date.now()}`, role: 'employee' } as User]);
         }
         setIsUserModalOpen(false);
-    };
-    const handleUserDelete = (userId: string) => {
+    }, []);
+
+    const handleUserDelete = useCallback((userId: string) => {
         if (window.confirm("Tem certeza que deseja excluir este usuário?")) {
             setUsers(prev => prev.filter(u => u.id !== userId));
         }
-    };
+    }, []);
 
     const TABS = [
         { id: 'dashboard', icon: <ChartPieIcon className="w-6 h-6" />, label: "Dashboard" },
