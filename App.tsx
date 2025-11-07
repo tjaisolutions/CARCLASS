@@ -1,7 +1,4 @@
 
-
-
-
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -1875,6 +1872,22 @@ const App = () => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
          setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
     }, []);
+    
+    const saveData = useCallback(async (dataToSave: { [key: string]: any }) => {
+        try {
+            const response = await fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dataToSave),
+            });
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
+        } catch (error) {
+            console.error("Failed to save data:", error);
+            addNotification("Erro: Falha ao salvar os dados no servidor.");
+        }
+    }, [addNotification]);
 
     const loadData = useCallback(async () => {
         try {
@@ -1904,55 +1917,70 @@ const App = () => {
 
 
     const handleClientSave = useCallback((clientData: Omit<Client, 'id'> & { id?: string }) => {
+        let newClients;
          if (clientData.id) {
-             setClients(prev => prev.map(c => c.id === clientData.id ? { ...c, ...clientData } as Client : c));
+             newClients = clients.map(c => c.id === clientData.id ? { ...c, ...clientData } as Client : c);
              addNotification(`Cliente "${clientData.name}" atualizado.`);
          } else {
              const newClient = { ...clientData, id: `c${Date.now()}`, cars: clientData.cars || [] } as Client;
-             setClients(prev => [...prev, newClient]);
+             newClients = [...clients, newClient];
              addNotification(`Novo cliente "${clientData.name}" adicionado.`);
          }
+         setClients(newClients);
+         saveData({ clients: newClients });
          setIsClientModalOpen(false);
-    }, [addNotification]);
+    }, [addNotification, clients, saveData]);
 
     const handleClientDelete = useCallback((id: string) => {
          if (window.confirm('Tem certeza?')) {
-             setClients(prev => prev.filter(c => c.id !== id));
+             const newClients = clients.filter(c => c.id !== id);
+             setClients(newClients);
+             saveData({ clients: newClients });
          }
-    }, []);
+    }, [clients, saveData]);
     
     const handleAppointmentSave = useCallback((appointmentData: Omit<Appointment, 'id'> & { id?: string }) => {
+        let newAppointments;
         if (appointmentData.id) {
-             setAppointments(prev => prev.map(a => a.id === appointmentData.id ? { ...a, ...appointmentData } as Appointment : a));
+             newAppointments = appointments.map(a => a.id === appointmentData.id ? { ...a, ...appointmentData } as Appointment : a);
              addNotification(`Agendamento atualizado.`);
         } else {
             const newAppointment: Appointment = { ...appointmentData, id: `a${Date.now()}`};
-            setAppointments(prev => [...prev, newAppointment]);
+            newAppointments = [...appointments, newAppointment];
             addNotification(`Novo agendamento criado para ${clients.find(c=>c.id === newAppointment.clientId)?.name}.`);
         }
+        setAppointments(newAppointments);
+        saveData({ appointments: newAppointments });
         setIsAppointmentModalOpen(false);
-    }, [addNotification, clients]);
+    }, [addNotification, clients, appointments, saveData]);
     
     const handleAppointmentDelete = useCallback((id: string) => {
          if (window.confirm('Tem certeza?')) {
-             setAppointments(prev => prev.filter(a => a.id !== id));
+             const newAppointments = appointments.filter(a => a.id !== id);
+             setAppointments(newAppointments);
+             saveData({ appointments: newAppointments });
          }
-    }, []);
+    }, [appointments, saveData]);
 
     const handleServiceSave = useCallback((serviceData: Omit<Service, 'id'> & { id?: string }) => {
+        let newServices;
         if (serviceData.id) {
-            setServices(prev => prev.map(s => s.id === serviceData.id ? { ...s, ...serviceData } as Service : s));
+            newServices = services.map(s => s.id === serviceData.id ? { ...s, ...serviceData } as Service : s);
         } else {
-            setServices(prev => [...prev, { ...serviceData, id: `s${Date.now()}` } as Service]);
+            newServices = [...services, { ...serviceData, id: `s${Date.now()}` } as Service];
         }
+        setServices(newServices);
+        saveData({ services: newServices });
         setIsServiceModalOpen(false);
-    }, []);
+    }, [services, saveData]);
 
     const handleServiceDelete = useCallback((id: string) => {
         if (window.confirm('Tem certeza?')) {
-            setServices(prev => prev.filter(s => s.id !== id));
+            const newServices = services.filter(s => s.id !== id);
+            setServices(newServices);
+            saveData({ services: newServices });
         }
-    }, []);
+    }, [services, saveData]);
 
     const handleFileUpload = useCallback(async (files: File[]) => {
         setIsProcessingFile(true);
@@ -1967,16 +1995,26 @@ const App = () => {
         }
     }, []);
 
-    const handleStartService = useCallback((id: string) => setAppointments(prev => prev.map(app => app.id === id ? { ...app, status: AppointmentStatus.InProgress } : app)), []);
-    const handleFinishService = useCallback((id: string) => setAppointments(prev => prev.map(app => app.id === id ? { ...app, status: AppointmentStatus.Finished } : app)), []);
+    const handleStartService = useCallback((id: string) => {
+        const newAppointments = appointments.map(app => app.id === id ? { ...app, status: AppointmentStatus.InProgress } : app);
+        setAppointments(newAppointments);
+        saveData({ appointments: newAppointments });
+    }, [appointments, saveData]);
+
+    const handleFinishService = useCallback((id: string) => {
+        const newAppointments = appointments.map(app => app.id === id ? { ...app, status: AppointmentStatus.Finished } : app);
+        setAppointments(newAppointments);
+        saveData({ appointments: newAppointments });
+    }, [appointments, saveData]);
     
     const handleSaveSettings = useCallback((settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => {
          setOperatingHours(settings.operatingHours);
          setAutomatedMessages(settings.automatedMessages);
          setMonthlyPlans(settings.monthlyPlans);
          setUsers(settings.users);
+         saveData(settings);
          addNotification("Configurações salvas com sucesso!");
-     }, [addNotification]);
+     }, [addNotification, saveData]);
     
     const handleNewConversation = useCallback((log: ConversationLog) => setConversationLogs(prev => [log, ...prev.slice(0, 49)]), []);
     
@@ -1993,19 +2031,24 @@ const App = () => {
     const handleLogout = useCallback(() => setCurrentUser(null), []);
     
     const handleUserSave = useCallback((userData: Omit<User, 'id'> & { id?: string }) => {
+        let newUsers;
         if (userData.id) {
-            setUsers(prev => prev.map(u => u.id === userData.id ? { ...u, ...userData, password: userData.password || u.password } as User : u));
+            newUsers = users.map(u => u.id === userData.id ? { ...u, ...userData, password: userData.password || u.password } as User : u);
         } else {
-            setUsers(prev => [...prev, { ...userData, id: `user-${Date.now()}`, role: 'employee' } as User]);
+            newUsers = [...users, { ...userData, id: `user-${Date.now()}`, role: 'employee' } as User];
         }
+        setUsers(newUsers);
+        saveData({ users: newUsers });
         setIsUserModalOpen(false);
-    }, []);
+    }, [users, saveData]);
 
     const handleUserDelete = useCallback((userId: string) => {
         if (window.confirm("Tem certeza que deseja excluir este usuário?")) {
-            setUsers(prev => prev.filter(u => u.id !== userId));
+            const newUsers = users.filter(u => u.id !== userId);
+            setUsers(newUsers);
+            saveData({ users: newUsers });
         }
-    }, []);
+    }, [users, saveData]);
 
     const TABS = [
         { id: 'dashboard', icon: <ChartPieIcon className="w-6 h-6" />, label: "Dashboard" },
