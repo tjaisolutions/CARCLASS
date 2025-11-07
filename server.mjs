@@ -8,6 +8,7 @@ import multer from 'multer';
 import mongoose from 'mongoose';
 import { EventEmitter } from 'events';
 import wppconnect from '@wppconnect-team/wppconnect';
+import chromium from '@sparticuz/chromium';
 
 
 // --- SETUP ---
@@ -54,48 +55,57 @@ const handleReconnect = () => {
     }
 };
 
-const initializeWhatsApp = () => {
+const initializeWhatsApp = async () => {
     console.log('Inicializando cliente WhatsApp com @wppconnect...');
     
-    wppconnect.create({
-        session: 'CARCLASS-SESSION',
-        catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
-            console.log('QR Code Recebido!');
-            // O frontend espera o 'urlCode' para o qrserver.com
-            whatsAppStatus = { isConnected: false, qrCode: urlCode, message: 'Escaneie o QR Code' };
-            statusEmitter.emit('statusChange');
-        },
-        statusFind: (statusSession, session) => {
-            console.log('Status da Sessão:', statusSession);
-            if (statusSession === 'inChat' || statusSession === 'isLogged') {
-                if (!whatsAppStatus.isConnected) {
-                    console.log('Cliente WhatsApp está pronto e conectado!');
-                    whatsAppStatus = { isConnected: true, qrCode: null, message: 'Conectado' };
-                    statusEmitter.emit('statusChange');
+    try {
+        const executablePath = await chromium.executablePath();
+        console.log(`[Chromium] Usando executável em: ${executablePath || 'padrão'}`);
+
+        const clientInstance = await wppconnect.create({
+            session: 'CARCLASS-SESSION',
+            catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
+                console.log('QR Code Recebido!');
+                whatsAppStatus = { isConnected: false, qrCode: urlCode, message: 'Escaneie o QR Code' };
+                statusEmitter.emit('statusChange');
+            },
+            statusFind: (statusSession, session) => {
+                console.log('Status da Sessão:', statusSession);
+                if (statusSession === 'inChat' || statusSession === 'isLogged') {
+                    if (!whatsAppStatus.isConnected) {
+                        console.log('Cliente WhatsApp está pronto e conectado!');
+                        whatsAppStatus = { isConnected: true, qrCode: null, message: 'Conectado' };
+                        statusEmitter.emit('statusChange');
+                    }
+                } else {
+                     whatsAppStatus = { isConnected: false, qrCode: null, message: `Status: ${statusSession}` };
+                     statusEmitter.emit('statusChange');
                 }
-            } else {
-                 whatsAppStatus = { isConnected: false, qrCode: null, message: `Status: ${statusSession}` };
-                 statusEmitter.emit('statusChange');
-            }
-        },
-        puppeteerOptions: {
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        },
-        tokenStore: 'file', // Usar o sistema de arquivos para armazenar a sessão
-        sessionDataPath: DATA_DIR, // Salvar os dados da sessão no disco persistente da Render
-        headless: 'new',
-        logQR: false,
-        autoClose: 0, // Desativa o timeout do QR Code
-    })
-    .then((c) => {
-        client = c;
+            },
+            puppeteerOptions: {
+                executablePath: executablePath,
+                headless: chromium.headless,
+                args: [
+                    ...chromium.args,
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--single-process'
+                ],
+            },
+            tokenStore: 'file',
+            sessionDataPath: DATA_DIR,
+            logQR: false,
+            autoClose: 0,
+        });
+    
+        client = clientInstance;
         startListeners(client);
-    })
-    .catch((err) => {
+    } catch (err) {
         console.error('Erro CRÍTICO ao criar cliente WhatsApp:', err);
         whatsAppStatus = { isConnected: false, qrCode: null, message: 'Erro na inicialização.' };
         statusEmitter.emit('statusChange');
-    });
+    }
 };
 
 function startListeners(client) {
