@@ -1,22 +1,23 @@
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import mongoose from 'mongoose';
-import { EventEmitter } from 'events'; // Importa o EventEmitter
+import { EventEmitter } from 'events';
+import wppconnect from '@wppconnect-team/wppconnect';
 
-// Fix: Correctly import 'whatsapp-web.js' for newer versions.
-import wweb from 'whatsapp-web.js';
-const { Client, RemoteAuth } = wweb;
-
-// Importar o MongoStore para RemoteAuth
-import { MongoStore } from 'wwebjs-mongo';
 
 // --- SETUP ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = process.env.RENDER_DISK_PATH || path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  console.log(`[Persistence] Criando diretório de dados em: ${DATA_DIR}`);
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -38,68 +39,95 @@ if (!MONGO_URI) {
     process.exit(1);
 }
 
+const handleReconnect = () => {
+    console.log("Tentando reconectar...");
+    if (client) {
+        client.close().then(() => {
+            console.log("Cliente antigo fechado. Reinicializando...");
+            setTimeout(initializeWhatsApp, 2000);
+        }).catch(e => {
+            console.error("Erro ao fechar cliente, forçando nova inicialização.", e);
+            initializeWhatsApp();
+        });
+    } else {
+        initializeWhatsApp();
+    }
+};
+
 const initializeWhatsApp = () => {
-    console.log('Inicializando cliente WhatsApp com RemoteAuth e nova sessão...');
+    console.log('Inicializando cliente WhatsApp com @wppconnect...');
     
-    // Certifique-se de que a conexão mongoose está disponível
-    const store = new MongoStore({ mongoose: mongoose });
-
-    client = new Client({
-        authStrategy: new RemoteAuth({
-            store: store,
-            backupSyncIntervalMs: 300000,
-            // Adicionado para forçar uma nova sessão e evitar corrupção de dados antigos
-            sessionId: 'CARCLASS-MAIN-SESSION' 
-        }),
-        puppeteer: {
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-            headless: true, // Garante que rode em modo headless no servidor
+    wppconnect.create({
+        session: 'CARCLASS-SESSION',
+        catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
+            console.log('QR Code Recebido!');
+            // O frontend espera o 'urlCode' para o qrserver.com
+            whatsAppStatus = { isConnected: false, qrCode: urlCode, message: 'Escaneie o QR Code' };
+            statusEmitter.emit('statusChange');
         },
+        statusFind: (statusSession, session) => {
+            console.log('Status da Sessão:', statusSession);
+            if (statusSession === 'inChat' || statusSession === 'isLogged') {
+                if (!whatsAppStatus.isConnected) {
+                    console.log('Cliente WhatsApp está pronto e conectado!');
+                    whatsAppStatus = { isConnected: true, qrCode: null, message: 'Conectado' };
+                    statusEmitter.emit('statusChange');
+                }
+            } else {
+                 whatsAppStatus = { isConnected: false, qrCode: null, message: `Status: ${statusSession}` };
+                 statusEmitter.emit('statusChange');
+            }
+        },
+        puppeteerOptions: {
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        },
+        tokenStore: 'file', // Usar o sistema de arquivos para armazenar a sessão
+        sessionDataPath: DATA_DIR, // Salvar os dados da sessão no disco persistente da Render
+        headless: 'new',
+        logQR: false,
+    })
+    .then((c) => {
+        client = c;
+        startListeners(client);
+    })
+    .catch((err) => {
+        console.error('Erro CRÍTICO ao criar cliente WhatsApp:', err);
+        whatsAppStatus = { isConnected: false, qrCode: null, message: 'Erro na inicialização.' };
+        statusEmitter.emit('statusChange');
     });
+};
 
-    client.on('qr', (qr) => {
-        console.log('QR Code Recebido!');
-        whatsAppStatus = { isConnected: false, qrCode: qr, message: 'Escaneie o QR Code' };
-        statusEmitter.emit('statusChange'); // Notifica que o status mudou
-    });
-
-    client.on('ready', () => {
-        console.log('Cliente WhatsApp está pronto e conectado!');
-        whatsAppStatus = { isConnected: true, qrCode: null, message: 'Conectado' };
-        statusEmitter.emit('statusChange'); // Notifica que o status mudou
-    });
-    
-    client.on('remote_session_saved', () => {
-        console.log('Sessão remota salva no MongoDB.');
-    });
-
-    client.on('message', async (message) => {
+function startListeners(client) {
+    client.onMessage(async (message) => {
+        if (message.isGroupMsg || message.from === 'status@broadcast' || !message.body || message.fromMe) {
+            return;
+        }
         console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
         if (message.body.toLowerCase() === 'oi') {
-            await message.reply('Olá! Bem-vindo à CAR CLASS. Como posso ajudar?');
+            await client.sendText(message.from, 'Olá! Bem-vindo à CAR CLASS. Como posso ajudar?');
         }
     });
 
-    client.on('disconnected', (reason) => {
-        console.log('Cliente WhatsApp foi desconectado!', reason);
-        whatsAppStatus = { isConnected: false, qrCode: null, message: 'Desconectado' };
-        statusEmitter.emit('statusChange'); // Notifica que o status mudou
-        // Tenta reinicializar para reconectar automaticamente
-        console.log('Tentando reconectar...');
-        client.initialize().catch(err => console.error('Erro ao RE-inicializar WhatsApp Client:', err));
+    client.onStateChange((state) => {
+        console.log('Estado do cliente mudou:', state);
+        if (state === 'CONFLICT' || state === 'UNPAIRED' || state === 'UNPAIRED_IDLE') {
+            console.log('Desconectado. Tentando reconectar automaticamente...');
+            handleReconnect();
+        }
     });
+}
 
-    client.initialize().catch(err => console.error('Erro ao inicializar WhatsApp Client:', err));
-};
 
 console.log('Conectando ao MongoDB...');
 mongoose.connect(MONGO_URI).then(() => {
     console.log('MongoDB conectado com sucesso.');
-    initializeWhatsApp(); // Inicializa o WhatsApp somente após conectar ao DB
 }).catch(err => {
     console.error('Falha ao conectar ao MongoDB', err);
     process.exit(1);
 });
+
+// Inicializa o WhatsApp na inicialização do servidor
+initializeWhatsApp();
 
 // --- MIDDLEWARE ---
 app.use(express.json());
@@ -115,34 +143,24 @@ const ai = new GoogleGenAI({ apiKey });
 // --- ROTAS DA API ---
 
 app.get('/api/whatsapp/status', (req, res) => {
-    // Se já estiver conectado, responde imediatamente
     if (whatsAppStatus.isConnected) {
         return res.json(whatsAppStatus);
     }
-    
-    // Se não, espera por uma mudança de status por até 25 segundos
     const waitForStatusChange = () => {
         res.json(whatsAppStatus);
         clearTimeout(timeout);
     };
-
     const timeout = setTimeout(() => {
         statusEmitter.off('statusChange', waitForStatusChange);
-        res.json(whatsAppStatus); // Responde com o status atual se o tempo esgotar
-    }, 25000); // 25 segundos de timeout
-
+        res.json(whatsAppStatus);
+    }, 25000);
     statusEmitter.once('statusChange', waitForStatusChange);
 });
 
 app.post('/api/whatsapp/reconnect', (req, res) => {
-    if (client) {
-        console.log("Recebida solicitação de reconexão do frontend.");
-        whatsAppStatus = { isConnected: false, qrCode: null, message: 'Reconectando...' };
-        res.status(202).json({ message: 'Tentativa de reconexão iniciada.' });
-        client.initialize().catch(err => console.error('Erro ao re-inicializar via API:', err));
-    } else {
-        res.status(503).json({ error: 'Cliente não inicializado.' });
-    }
+    console.log("Recebida solicitação de reconexão do frontend.");
+    res.status(202).json({ message: 'Tentativa de reconexão iniciada.' });
+    handleReconnect();
 });
 
 app.post('/api/whatsapp/send-message', async (req, res) => {
@@ -154,7 +172,7 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
         return res.status(503).json({ error: 'Cliente WhatsApp não está pronto.' });
     }
     try {
-        await client.sendMessage(chatId, message);
+        await client.sendText(chatId, message);
         res.status(200).json({ success: true });
     } catch (e) {
         console.error("Erro ao enviar mensagem manual:", e);
@@ -164,15 +182,10 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   const { userInput, services } = req.body;
-
   if (!userInput || !services) {
     return res.status(400).json({ error: 'userInput e services são obrigatórios.' });
   }
-
-  const serviceListForPrompt = services.map((s) =>
-    `- ID: "${s.id}", Nome: "${s.name}", Preço: R$${s.price.toFixed(2)}, Descrição: "${s.description}"`
-  ).join('\n');
-
+  const serviceListForPrompt = services.map((s) => `- ID: "${s.id}", Nome: "${s.name}", Preço: R$${s.price.toFixed(2)}, Descrição: "${s.description}"`).join('\n');
   const prompt = `Você é um assistente de agendamento para a estética automotiva CAR CLASS. O cliente recebeu um catálogo com serviços e respondeu. Sua tarefa é analisar a mensagem do cliente e a lista de serviços para decidir a ação.
 
 Lista de Serviços:
@@ -225,14 +238,11 @@ app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) 
   if (!file) {
     return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
   }
-
   const base64File = file.buffer.toString('base64');
-  
   const isPdf = file.mimetype === 'application/pdf';
   const prompt = isPdf
       ? `Extraia todos os serviços do documento PDF. Para cada serviço, identifique o nome, descrição, duração em minutos, preço em BRL e, se houver, o intervalo de manutenção em meses. Retorne os dados em um array de objetos JSON, seguindo este schema. Campos numéricos devem ser apenas números.`
       : `Extraia todos os serviços da imagem do catálogo. Para cada serviço, identifique o nome, descrição, duração em minutos, preço em BRL e, se houver, o intervalo de manutenção em meses. Retorne os dados em um array de objetos JSON, seguindo este schema. Campos numéricos devem ser apenas números.`;
-
   try {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -265,10 +275,8 @@ app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) 
             }
         }
     });
-
     const extractedServices = JSON.parse(response.text);
     res.json(extractedServices);
-
   } catch(error) {
     console.error('Erro na API do Gemini (Catalog):', error);
     res.status(500).json({ error: 'Falha ao processar o arquivo com a IA.' });
