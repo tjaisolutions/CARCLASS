@@ -47,7 +47,20 @@ const loadDb = () => {
                 availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
             },
             automatedMessages: [],
-            users: [{ id: 'user-owner', username: 'owner', password: '123', role: 'owner', permissions: {} }],
+            users: [{ 
+                id: 'user-owner', 
+                username: 'owner', 
+                password: '123', 
+                role: 'owner', 
+                permissions: {
+                    dashboard: true,
+                    agenda: true,
+                    clients: true,
+                    services: true,
+                    whatsapp: true,
+                    settings: true,
+                } 
+            }],
             conversationLogs: [],
             catalogFiles: [],
         };
@@ -231,10 +244,6 @@ async function startWhatsAppBot() {
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
             '--disable-gpu'
         ],
       },
