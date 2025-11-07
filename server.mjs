@@ -55,6 +55,8 @@ const getInitialState = () => ({
     }],
     conversationLogs: [],
     catalogFiles: [],
+    // NOVO: Armazenamento para o estado do WhatsApp
+    wa_chats: {}, // Armazena chats: { [chatId]: { id, name, messages: [] } }
 });
 
 
@@ -68,7 +70,7 @@ const loadDb = () => {
                  console.warn('[Persistence] O arquivo de dados estava vazio. Iniciando com estado padrão.');
                  aistudio = getInitialState();
             } else {
-                aistudio = JSON.parse(data);
+                aistudio = { ...getInitialState(), ...JSON.parse(data) };
             }
         } catch (error) {
             console.error('[Persistence] ERRO CRÍTICO ao ler ou analisar db.json:', error);
@@ -85,6 +87,9 @@ const loadDb = () => {
     } else {
         console.log('[Persistence] Nenhum arquivo de dados encontrado, iniciando com estado padrão.');
         aistudio = getInitialState();
+    }
+     if (!aistudio.wa_chats) {
+        aistudio.wa_chats = {};
     }
 };
 
@@ -187,6 +192,7 @@ app.post('/api/chat', async (req, res) => {
 // --- WHATSAPP BOT (BAILEYS) ---
 let sock = null;
 const SESSION_DIR = path.join(DATA_DIR, 'whatsapp_session');
+const waEvents = new EventEmitter();
 
 const connectionStatus = {
   isConnected: false,
@@ -238,6 +244,8 @@ async function connectToWhatsApp() {
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log(`[WhatsApp] Conexão fechada: ${lastDisconnect.error}, reconectando: ${shouldReconnect}`);
             connectionStatus.isConnected = false;
+            waEvents.emit('status_change', { isConnected: false });
+
 
             if (shouldReconnect) {
                 connectionStatus.message = 'Conexão perdida. Tentando reconectar...';
@@ -262,6 +270,7 @@ async function connectToWhatsApp() {
             connectionStatus.isConnected = true;
             connectionStatus.qrCode = null;
             connectionStatus.message = 'Conectado com sucesso!';
+            waEvents.emit('status_change', { isConnected: true });
             await syncContacts(sock);
         }
     });
@@ -272,37 +281,77 @@ async function connectToWhatsApp() {
             return;
         }
         
-        const sender = msg.key.remoteJid;
+        const chatId = msg.key.remoteJid;
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        const senderName = msg.pushName || chatId.split('@')[0];
         
-        console.log(`[WhatsApp] Mensagem de ${sender}: ${text}`);
+        console.log(`[WhatsApp] Mensagem de ${senderName} (${chatId}): ${text}`);
         
-        // TODO: Adicionar lógica do chatbot aqui
+        // Armazenar a mensagem
+        if (!aistudio.wa_chats[chatId]) {
+            aistudio.wa_chats[chatId] = { id: chatId, name: senderName, messages: [] };
+        }
+        aistudio.wa_chats[chatId].name = senderName; // Update name if it changes
+        
+        const messageData = {
+            id: { fromMe: false, remote: chatId },
+            body: text,
+            timestamp: msg.messageTimestamp,
+        };
+        aistudio.wa_chats[chatId].messages.push(messageData);
+        saveDb();
+
+        // Emitir evento para o long-polling
+        waEvents.emit('message', { type: 'message', senderName, data: messageData });
     });
 
 }
+
+// --- NOVO: SISTEMA DE EVENTOS E LONG-POLLING ---
+app.get('/api/whatsapp/events', (req, res) => {
+    const onMessage = (event) => {
+        res.json(event);
+    };
+
+    waEvents.once('message', onMessage);
+    
+    // Remover o listener se o cliente desconectar
+    req.on('close', () => {
+        waEvents.removeListener('message', onMessage);
+    });
+});
 
 app.get('/api/whatsapp/status', (req, res) => {
     res.json(connectionStatus);
 });
 
 app.get('/api/whatsapp/chats', async (req, res) => {
-    if (!sock || !connectionStatus.isConnected) {
-        return res.status(503).json([]);
-    }
-    try {
-        // Baileys doesn't have a direct getChats method.
-        // We will return the clients from our DB as a chat list.
-        const chats = aistudio.clients.map(client => ({
-             id: { _serialized: `${client.whatsapp}@c.us` },
-             name: client.name || `Contato ${client.whatsapp}`,
-             lastMessage: { body: 'Inicie uma conversa!' },
-             timestamp: Date.now() / 1000,
-        }));
-        res.json(chats.sort((a,b) => b.timestamp - a.timestamp));
+     try {
+        const chatList = Object.values(aistudio.wa_chats).map(chat => {
+            const lastMessage = chat.messages[chat.messages.length - 1] || { body: 'Nenhuma mensagem ainda', timestamp: 0 };
+            return {
+                id: chat.id,
+                name: chat.name,
+                lastMessage: {
+                    body: lastMessage.body,
+                    timestamp: lastMessage.timestamp,
+                }
+            };
+        });
+        res.json(chatList.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp));
     } catch (error) {
-        console.error('Error fetching chats from DB:', error);
-        res.status(500).json({ error: 'Failed to fetch chats' });
+        console.error('Erro ao buscar chats locais:', error);
+        res.status(500).json({ error: 'Falha ao buscar chats' });
+    }
+});
+
+app.get('/api/whatsapp/messages/:chatId', (req, res) => {
+    const { chatId } = req.params;
+    const chat = aistudio.wa_chats[chatId];
+    if (chat) {
+        res.json(chat.messages);
+    } else {
+        res.status(404).json([]);
     }
 });
 
@@ -318,6 +367,19 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
 
     try {
         await sock.sendMessage(chatId, { text: message });
+        
+        // Salvar a mensagem enviada
+        if (!aistudio.wa_chats[chatId]) {
+            aistudio.wa_chats[chatId] = { id: chatId, name: chatId.split('@')[0], messages: [] };
+        }
+         const messageData = {
+            id: { fromMe: true, remote: chatId },
+            body: message,
+            timestamp: Math.floor(Date.now() / 1000),
+        };
+        aistudio.wa_chats[chatId].messages.push(messageData);
+        saveDb();
+
         res.status(200).json({ success: true, message: 'Mensagem enviada.' });
     } catch (error) {
         console.error('Erro ao enviar mensagem via WhatsApp:', error);
