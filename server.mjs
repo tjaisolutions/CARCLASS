@@ -84,13 +84,13 @@ const initializeWhatsApp = async () => {
             },
             puppeteerOptions: {
                 executablePath: executablePath,
-                headless: chromium.headless,
+                headless: 'new', // Use modern headless mode for better stability
                 args: [
                     ...chromium.args,
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
-                    '--single-process'
+                    '--disable-gpu' // Explicitly disable GPU for server environments
                 ],
             },
             tokenStore: 'file',
