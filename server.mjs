@@ -7,16 +7,16 @@ import multer from 'multer';
 import mongoose from 'mongoose';
 import { EventEmitter } from 'events'; // Importa o EventEmitter
 
-// Fix: Correctly import CommonJS module 'whatsapp-web.js' into an ES module.
-import pkg from 'whatsapp-web.js';
-const { Client, RemoteAuth } = pkg;
+// Fix: Correctly import 'whatsapp-web.js' for newer versions.
+import wweb from 'whatsapp-web.js';
+const { Client, RemoteAuth } = wweb;
 
 // Importar o MongoStore para RemoteAuth
 import { MongoStore } from 'wwebjs-mongo';
 
 // --- SETUP ---
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(filename);
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -39,7 +39,7 @@ if (!MONGO_URI) {
 }
 
 const initializeWhatsApp = () => {
-    console.log('Inicializando cliente WhatsApp com RemoteAuth...');
+    console.log('Inicializando cliente WhatsApp com RemoteAuth e nova sessão...');
     
     // Certifique-se de que a conexão mongoose está disponível
     const store = new MongoStore({ mongoose: mongoose });
@@ -48,6 +48,8 @@ const initializeWhatsApp = () => {
         authStrategy: new RemoteAuth({
             store: store,
             backupSyncIntervalMs: 300000,
+            // Adicionado para forçar uma nova sessão e evitar corrupção de dados antigos
+            sessionId: 'CARCLASS-MAIN-SESSION' 
         }),
         puppeteer: {
             args: ['--no-sandbox', '--disable-setuid-sandbox'],
