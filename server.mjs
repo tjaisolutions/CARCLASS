@@ -1,4 +1,5 @@
 
+
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
@@ -106,8 +107,6 @@ loadDb();
 
 // --- MIDDLEWARE ---
 app.use(express.json());
-// Servir arquivos estáticos da pasta 'dist' (build de produção)
-app.use(express.static(path.join(__dirname, 'dist')));
 
 
 // --- API ROUTES ---
@@ -272,11 +271,13 @@ async function startWhatsAppBot() {
     });
     
     whatsappClient.on('qr', async (qr) => {
-      console.log('[WhatsApp] QR Code recebido, gerando para o frontend.');
+      console.log('[WhatsApp] Evento "qr" recebido. Gerando QR Code para o frontend.');
       try {
         const dataUrl = await qrcode.toDataURL(qr);
+        connectionStatus.isConnected = false;
         connectionStatus.qrCode = dataUrl.replace('data:image/png;base64,', '');
-        connectionStatus.message = 'Por favor, escaneie o QR Code.';
+        connectionStatus.message = 'Por favor, escaneie o QR Code para conectar.';
+        console.log('[WhatsApp] QR Code enviado para o frontend.');
       } catch (err) {
         console.error('[QRCode] Erro ao gerar a imagem do QR Code:', err);
         connectionStatus.qrCode = null;
@@ -285,28 +286,50 @@ async function startWhatsAppBot() {
     });
     
     whatsappClient.on('ready', async () => {
-      console.log('[WhatsApp] Cliente está pronto e conectado!');
+      console.log('[WhatsApp] Evento "ready" recebido. O cliente está conectado.');
+      
+      // ATUALIZAÇÃO IMEDIATA DO ESTADO - CRÍTICO PARA O FRONTEND
       connectionStatus.isConnected = true;
-      connectionStatus.qrCode = null;
-      connectionStatus.message = 'Conectado com sucesso!';
-      isInitializing = false; // Successfully initialized
+      connectionStatus.qrCode = null; // Limpa o QR code pois não é mais necessário
+      connectionStatus.message = 'Conectado! Sincronizando contatos...';
+      console.log('[WhatsApp] Objeto de status atualizado para: ', connectionStatus);
+
+      isInitializing = false; 
+      
+      // Sincroniza contatos em segundo plano
       await syncContacts(whatsappClient);
+      
+      console.log('[WhatsApp] Sincronização de contatos concluída.');
     });
     
     whatsappClient.on('disconnected', (reason) => {
         console.log('[WhatsApp] Cliente foi desconectado:', reason);
         connectionStatus.isConnected = false;
-        connectionStatus.message = 'Conexão perdida. Tentando reconectar automaticamente...';
-        // A biblioteca tentará se reconectar sozinha. Não forçamos uma reinicialização aqui para evitar loops.
+        connectionStatus.message = 'Conexão perdida. Tentando reconectar...';
+        // A biblioteca tentará se reconectar sozinha.
     });
     
     whatsappClient.on('auth_failure', (msg) => {
-        console.error('[WhatsApp] FALHA DE AUTENTICAÇÃO', msg);
+        console.error('[WhatsApp] FALHA DE AUTENTICAÇÃO:', msg);
         connectionStatus.isConnected = false;
         connectionStatus.qrCode = null;
         connectionStatus.message = 'Falha na autenticação. É necessário escanear o QR Code novamente.';
-        // Forçar reinicialização para obter um novo QR Code
-        reconnect();
+        
+        // DELETA A SESSÃO LOCAL PARA FORÇAR UM NOVO QR CODE
+        const sessionPath = path.join(DATA_DIR, `.wwebjs_auth/session-${WHATSAPP_SESSION_ID}`);
+        if (fs.existsSync(sessionPath)) {
+            fs.rm(sessionPath, { recursive: true, force: true }, (err) => {
+                if (err) {
+                    console.error('[WhatsApp] Erro ao remover a pasta da sessão:', err);
+                } else {
+                    console.log('[WhatsApp] Pasta da sessão local removida devido à falha de autenticação.');
+                }
+                 // Reinicia o processo para gerar um novo QR
+                reconnect();
+            });
+        } else {
+            reconnect();
+        }
     });
 
     whatsappClient.on('message', (message) => {
@@ -337,8 +360,9 @@ async function startWhatsAppBot() {
 async function reconnect() {
     if (isInitializing) return;
     
+    console.log("[WhatsApp] Iniciando processo de reconexão...");
     if (whatsappClient) {
-        console.log("[WhatsApp] Tentando destruir cliente existente para reconectar...");
+        console.log("[WhatsApp] Tentando destruir cliente existente...");
         try {
             await whatsappClient.destroy();
         } catch (e) {
@@ -399,6 +423,9 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
     }
 });
 
+
+// Servir arquivos estáticos da pasta 'dist' (build de produção)
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // --- ROTA CATCH-ALL ---
 app.get('*', (req, res) => {
