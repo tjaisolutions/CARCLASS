@@ -251,7 +251,7 @@ async function startWhatsAppBot() {
     whatsappClient = new Client({
       authStrategy: new LocalAuth({ clientId: WHATSAPP_SESSION_ID, dataPath: DATA_DIR }),
       puppeteer: {
-        headless: true,
+        headless: 'new',
         executablePath: await chromium.executablePath(),
         args: [
             ...chromium.args,
@@ -259,7 +259,8 @@ async function startWhatsAppBot() {
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
-            '--single-process', // Crucial for low-memory environments
+            '--single-process', 
+            '--no-zygote',
             '--disable-extensions'
         ],
       },
@@ -271,7 +272,6 @@ async function startWhatsAppBot() {
     
     whatsappClient.on('qr', async (qr) => {
       console.log('[WhatsApp] QR Code recebido, gerando para o frontend.');
-      // qrcodeTerminal.generate(qr, { small: true }); // Optional: keep for debug if needed
       try {
         const dataUrl = await qrcode.toDataURL(qr);
         connectionStatus.qrCode = dataUrl.replace('data:image/png;base64,', '');
@@ -295,11 +295,17 @@ async function startWhatsAppBot() {
     whatsappClient.on('disconnected', (reason) => {
         console.log('[WhatsApp] Cliente foi desconectado:', reason);
         connectionStatus.isConnected = false;
+        connectionStatus.message = 'Conexão perdida. Tentando reconectar automaticamente...';
+        // A biblioteca tentará se reconectar sozinha. Não forçamos uma reinicialização aqui para evitar loops.
+    });
+    
+    whatsappClient.on('auth_failure', (msg) => {
+        console.error('[WhatsApp] FALHA DE AUTENTICAÇÃO', msg);
+        connectionStatus.isConnected = false;
         connectionStatus.qrCode = null;
-        connectionStatus.message = 'Desconectado. Tentando reconectar...';
-        isInitializing = false; // Allow re-initialization
-        // The library might try to reconnect automatically, but we can also trigger a restart.
-        setTimeout(startWhatsAppBot, 15000); // Wait 15s before trying to restart
+        connectionStatus.message = 'Falha na autenticação. É necessário escanear o QR Code novamente.';
+        // Forçar reinicialização para obter um novo QR Code
+        reconnect();
     });
 
     whatsappClient.on('message', (message) => {
@@ -322,10 +328,27 @@ async function startWhatsAppBot() {
     connectionStatus.qrCode = null;
     connectionStatus.message = `Erro na inicialização. Verifique os logs.`;
     isInitializing = false; // Allow re-initialization
-    // Try to restart after a longer delay on critical failure.
-    setTimeout(startWhatsAppBot, 60000); 
+    // Tentar reiniciar após um tempo em caso de falha crítica
+    setTimeout(reconnect, 30000); 
   }
 }
+
+async function reconnect() {
+    if (isInitializing) return;
+    
+    if (whatsappClient) {
+        console.log("[WhatsApp] Tentando destruir cliente existente para reconectar...");
+        try {
+            await whatsappClient.destroy();
+        } catch (e) {
+            console.warn("[WhatsApp] Erro ao destruir cliente. Pode já estar destruído.", e.message);
+        } finally {
+            whatsappClient = null;
+        }
+    }
+    startWhatsAppBot();
+}
+
 
 app.get('/api/whatsapp/status', (req, res) => {
     res.json(connectionStatus);
@@ -337,18 +360,8 @@ app.get('/api/whatsapp/messages', (req, res) => {
 });
 
 app.post('/api/whatsapp/reconnect', async (req, res) => {
-    if (whatsappClient) {
-        try {
-            console.log("[WhatsApp] Tentando destruir cliente existente para reconectar...");
-            await whatsappClient.destroy();
-        } catch (e) {
-            console.warn("[WhatsApp] Erro ao destruir cliente. Pode já estar destruído.", e.message);
-        }
-    }
-    whatsappClient = null;
-    connectionStatus.isConnected = false;
     connectionStatus.message = 'Reconectando manualmente...';
-    startWhatsAppBot();
+    reconnect();
     res.status(200).send({ message: 'Processo de reconexão iniciado.' });
 });
 
