@@ -1,4 +1,3 @@
-
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
@@ -8,7 +7,8 @@ import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import { EventEmitter } from 'events';
-import wppconnect from '@wppconnect-team/wppconnect';
+import { Client, LocalAuth } from 'whatsapp-web.js';
+import qrcode from 'qrcode-terminal';
 import chromium from '@sparticuz/chromium';
 
 
@@ -25,7 +25,6 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 // --- GERENCIAMENTO DE ESTADO SIMPLIFICADO ---
-// Em um app real, isso seria um banco de dados como MongoDB ou PostgreSQL.
 const DB_FILE_PATH = path.join(DATA_DIR, 'db.json');
 let aistudio;
 
@@ -175,7 +174,7 @@ const connectionStatus = {
 const syncContacts = async (client) => {
     try {
         console.log('[WhatsApp] Sincronizando contatos...');
-        const contacts = await client.getAllContacts();
+        const contacts = await client.getContacts();
         let newClientsCount = 0;
         for (const contact of contacts) {
             if (contact.isMyContact && contact.id.user) {
@@ -208,36 +207,16 @@ const syncContacts = async (client) => {
 }
 
 async function startWhatsAppBot() {
-  console.log('[WhatsApp] Iniciando cliente...');
-  connectionStatus.message = 'Iniciando o cliente wppconnect...';
+  console.log('[WhatsApp] Iniciando cliente com whatsapp-web.js...');
+  connectionStatus.message = 'Iniciando o cliente...';
   connectionStatus.isConnected = false;
   connectionStatus.qrCode = null;
 
   try {
-    whatsappClient = await wppconnect.create({
-      session: WHATSAPP_SESSION_ID,
-      catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
-        console.log('[WhatsApp] Novo QR Code gerado. Tentativa:', attempts);
-        connectionStatus.qrCode = base64Qr;
-        connectionStatus.message = 'Aguardando leitura do QR Code.';
-      },
-      statusFind: async (statusSession, session) => {
-        console.log(`[WhatsApp] Status da sessão: ${statusSession} (${session})`);
-        connectionStatus.message = `Status da sessão: ${statusSession}`;
-        if (statusSession === 'isLogged' || statusSession === 'qrReadSuccess' || statusSession === 'chatsAvailable') {
-            if (!connectionStatus.isConnected) { // Run only on first connection
-                connectionStatus.isConnected = true;
-                connectionStatus.qrCode = null;
-                connectionStatus.message = 'Cliente conectado! Sincronizando contatos...';
-                await syncContacts(whatsappClient); // Sincroniza contatos após conectar
-            }
-        }
-        if (statusSession === 'notLogged' || statusSession === 'deviceNotConnected' || statusSession === 'desconnectedMobile') {
-            connectionStatus.isConnected = false;
-        }
-      },
-      headless: 'new',
-      puppeteerOptions: {
+    whatsappClient = new Client({
+      authStrategy: new LocalAuth({ clientId: WHATSAPP_SESSION_ID, dataPath: DATA_DIR }),
+      puppeteer: {
+        headless: true,
         executablePath: await chromium.executablePath(),
         args: [
             ...chromium.args,
@@ -247,15 +226,35 @@ async function startWhatsAppBot() {
             '--disable-gpu'
         ],
       },
-      autoClose: 99999999,
-      deviceName: 'CARCLASS_SERVER',
+    });
+    
+    whatsappClient.on('qr', (qr) => {
+      console.log('[WhatsApp] QR Code recebido, gerando para o terminal e frontend.');
+      qrcode.generate(qr, { small: true });
+      // A biblioteca já fornece a string base64, mas precisamos extraí-la do data URI.
+      connectionStatus.qrCode = qr.replace('data:image/png;base64,', '');
+      connectionStatus.message = 'Por favor, escaneie o QR Code.';
+    });
+    
+    whatsappClient.on('ready', async () => {
+      console.log('[WhatsApp] Cliente está pronto e conectado!');
+      connectionStatus.isConnected = true;
+      connectionStatus.qrCode = null;
+      connectionStatus.message = 'Conectado com sucesso!';
+      await syncContacts(whatsappClient);
+    });
+    
+    whatsappClient.on('disconnected', (reason) => {
+        console.log('[WhatsApp] Cliente foi desconectado:', reason);
+        connectionStatus.isConnected = false;
+        connectionStatus.qrCode = null;
+        connectionStatus.message = 'Desconectado. Tentando reconectar...';
+        // A biblioteca tenta reconectar automaticamente, mas podemos forçar um reinício se necessário.
+        startWhatsAppBot(); 
     });
 
-    console.log('[WhatsApp] Cliente criado com sucesso!');
-    
-    whatsappClient.onMessage((message) => {
-        // Ignorar mensagens de status ou de grupos
-        if (message.isStatus || message.isGroupMsg || !message.body) {
+    whatsappClient.on('message', (message) => {
+        if (message.isStatus || message.from.endsWith('@g.us') || !message.body) {
             return;
         }
         console.log(`[WhatsApp] Mensagem recebida de ${message.from}: ${message.body}`);
@@ -266,12 +265,15 @@ async function startWhatsAppBot() {
         });
     });
 
+    await whatsappClient.initialize();
+
   } catch (error) {
-    console.error('Erro CRÍTICO ao criar cliente WhatsApp:', error.message);
+    console.error('Erro CRÍTICO ao inicializar o cliente WhatsApp:', error.message);
     connectionStatus.isConnected = false;
     connectionStatus.qrCode = null;
     connectionStatus.message = `Erro: ${error.message}`;
-    setTimeout(startWhatsAppBot, 30000);
+    // Tenta reiniciar após um tempo em caso de falha crítica na inicialização
+    setTimeout(startWhatsAppBot, 60000); 
   }
 }
 
@@ -287,9 +289,9 @@ app.get('/api/whatsapp/messages', (req, res) => {
 app.post('/api/whatsapp/reconnect', async (req, res) => {
     if (whatsappClient) {
         try {
-            await whatsappClient.close();
+            await whatsappClient.destroy();
         } catch (e) {
-            console.warn("Erro ao fechar cliente existente, pode já estar fechado.", e.message);
+            console.warn("Erro ao destruir cliente existente.", e.message);
         }
     }
     whatsappClient = null;
@@ -309,7 +311,7 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
     }
 
     try {
-        await whatsappClient.sendText(chatId, message);
+        await whatsappClient.sendMessage(chatId, message);
         res.status(200).json({ success: true, message: 'Mensagem enviada.' });
     } catch (error) {
         console.error('Erro ao enviar mensagem via WhatsApp:', error);
