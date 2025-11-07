@@ -21,7 +21,7 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 
-const app = express();
+export const app = express();
 const port = process.env.PORT || 3001;
 
 // --- GERENCIAMENTO DE ESTADO SIMPLIFICADO ---
@@ -429,8 +429,14 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
 
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
-app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
-  console.log(`Diretório de dados: ${DATA_DIR}`);
-  connectToWhatsApp();
-});
+// This check ensures that app.listen is only called when you run `node server.mjs`
+// It prevents the server from starting when it's imported by another file (like vite.config.js)
+const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
+
+if (isMainModule) {
+    app.listen(port, () => {
+      console.log(`Servidor rodando na porta ${port}`);
+      console.log(`Diretório de dados: ${DATA_DIR}`);
+      connectToWhatsApp();
+    });
+}
