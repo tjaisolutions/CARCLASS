@@ -193,15 +193,9 @@ async function connectToWhatsApp() {
             if (shouldReconnect) {
                 connectToWhatsApp();
             } else {
-                console.log('[WhatsApp] Desconectado permanentemente. Removendo sessão...');
-                try {
-                    if (fs.existsSync(SESSION_DIR)) {
-                        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-                        console.log('[WhatsApp] Diretório da sessão removido com sucesso.');
-                    }
-                } catch (err) {
-                    console.error('[WhatsApp] Erro ao remover pasta da sessão:', err);
-                }
+                console.log('[WhatsApp] Desconectado permanentemente. A sessão foi invalidada e precisa ser escaneada novamente.');
+                // FIX: Não apagar a sessão automaticamente. Isso força o usuário a re-escanear.
+                // O servidor tentará reconectar, e se a sessão for inválida, um novo QR será gerado.
                 connectToWhatsApp(); 
             }
         } else if (connection === 'open') {
@@ -246,6 +240,12 @@ async function connectToWhatsApp() {
         conversation.messages.push(userMessageData);
         waEvents.emit('event', { type: 'message', senderName, data: userMessageData });
 
+        // FIX: Comando de reinício global
+        if (normalizeText(userInput) === 'início') {
+            conversation.state = 'GREETING';
+            conversation.context = {};
+        }
+
         // 2. Máquina de estados para guiar a conversa
         switch (conversation.state) {
             case 'GREETING':
@@ -286,9 +286,8 @@ async function connectToWhatsApp() {
                 
                 await sendBotMessage(chatId, `Cadastro realizado com sucesso, ${newClient.name}! Vamos agendar seu serviço.`, senderName);
                 
-                // Transição para o fluxo de agendamento
-                const serviceList = aistudio.services.map(s => `- *${s.name}* (R$ ${s.price.toFixed(2)})`).join('\n');
-                await sendBotMessage(chatId, `Aqui estão nossos serviços:\n\n${serviceList}\n\nQual serviço você gostaria de agendar? Você também pode optar por "Escolher no local".`, senderName);
+                const serviceListNew = aistudio.services.map(s => `- *${s.name}* (R$ ${s.price.toFixed(2)})`).join('\n') || "Nenhum serviço cadastrado no momento.";
+                await sendBotMessage(chatId, `Aqui estão nossos serviços:\n\n${serviceListNew}\n\nQual serviço você gostaria de agendar? Você também pode optar por "Escolher no local".`, senderName);
                 conversation.state = 'AWAITING_SERVICE_SELECTION';
                 break;
             
@@ -311,24 +310,34 @@ async function connectToWhatsApp() {
                         const serviceNames = app.serviceIds.map(id => aistudio.services.find(s => s.id === id)?.name || 'Serviço desconhecido').join(', ');
                         const date = new Date(app.date + 'T00:00:00').toLocaleDateString('pt-BR');
                         await sendBotMessage(chatId, `Verifiquei que você tem um agendamento para *${serviceNames}* no dia *${date} às ${app.time}*. Deseja agendar um novo serviço mesmo assim?`, senderName);
-                        conversation.state = 'AWAITING_SERVICE_SELECTION'; // Simplificado para continuar o fluxo
                     } else {
-                        const serviceList = aistudio.services.map(s => `- *${s.name}* (R$ ${s.price.toFixed(2)})`).join('\n');
-                        await sendBotMessage(chatId, `Não encontrei agendamentos futuros em seu nome. Aqui estão nossos serviços:\n\n${serviceList}\n\nQual serviço você gostaria de agendar?`, senderName);
-                        conversation.state = 'AWAITING_SERVICE_SELECTION';
+                        await sendBotMessage(chatId, "Não encontrei agendamentos futuros em seu nome.", senderName);
                     }
+                    
+                    const serviceListExisting = aistudio.services.map(s => `- *${s.name}* (R$ ${s.price.toFixed(2)})`).join('\n') || "Nenhum serviço cadastrado no momento.";
+                    await sendBotMessage(chatId, `Aqui estão nossos serviços:\n\n${serviceListExisting}\n\nQual serviço você gostaria de agendar?`, senderName);
+                    conversation.state = 'AWAITING_SERVICE_SELECTION';
+
                 } else {
                     await sendBotMessage(chatId, "Não encontrei seu CPF em nosso sistema. Gostaria de fazer um novo cadastro? Por favor, responda com 'Sim' ou 'Não'.", senderName);
                     conversation.state = 'AWAITING_CUSTOMER_TYPE';
                 }
                 break;
             
-            // Outros estados do fluxo de agendamento (AWAITING_SERVICE_SELECTION, etc.) seriam adicionados aqui.
-            // Por enquanto, o fluxo termina aqui para garantir a entrega da lógica de identificação.
+            case 'AWAITING_SERVICE_SELECTION':
+                 // Lógica para selecionar serviço, data e hora será implementada aqui.
+                 // Por enquanto, enviamos uma mensagem de placeholder para não quebrar o fluxo.
+                 await sendBotMessage(chatId, "Obrigado! Nossa equipe de agendamento está sendo aprimorada e em breve você poderá escolher data e hora por aqui. Por enquanto, um de nossos atendentes entrará em contato para finalizar seu agendamento.", senderName);
+                 conversation.state = 'PENDING_HUMAN_INTERVENTION'; // Novo estado final
+                 break;
+
+            case 'PENDING_HUMAN_INTERVENTION':
+                // O bot não responde mais ativamente até ser reiniciado
+                break;
 
             default:
-                await sendBotMessage(chatId, "Olá! Para reiniciar o atendimento, por favor, envie a palavra 'início'.", senderName);
-                conversation.state = 'GREETING'; // Reseta a conversa
+                // FIX: Resposta padrão mais amigável que não reseta a conversa.
+                await sendBotMessage(chatId, "Desculpe, não entendi essa parte. Você pode tentar reformular? Se quiser recomeçar do zero, basta enviar a palavra 'início'.", senderName);
                 break;
         }
 
