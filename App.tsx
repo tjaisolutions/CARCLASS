@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -1044,7 +1045,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                             <h3 className="text-xl font-bold text-white mb-4">Conecte seu WhatsApp</h3>
                             <p className="text-gray-400 mt-2 max-w-md mb-6">Abra o WhatsApp no seu celular, vá para Aparelhos Conectados e escaneie o código abaixo.</p>
                             <div className="bg-white p-4 rounded-lg">
-                                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode)}`} alt="WhatsApp QR Code" />
+                                <img src={qrCode} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
                             </div>
                         </div>
                     ) : (
