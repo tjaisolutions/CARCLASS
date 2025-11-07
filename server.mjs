@@ -1,4 +1,3 @@
-
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
@@ -8,8 +7,9 @@ import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import { EventEmitter } from 'events';
-import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth } from pkg;
+// Fix: Robust import for CommonJS module 'whatsapp-web.js' to prevent SyntaxError on deploy
+import WhatsAppWeb from 'whatsapp-web.js';
+const { Client, LocalAuth } = WhatsAppWeb;
 import qrcode from 'qrcode-terminal';
 import chromium from '@sparticuz/chromium';
 
