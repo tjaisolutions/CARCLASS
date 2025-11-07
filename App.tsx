@@ -1077,21 +1077,17 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                 </div>
             ) : ( // loading
                 <>
-                    {qrCode ? (
-                        <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
-                            <h3 className="text-xl font-bold text-white mb-4">Conecte seu WhatsApp</h3>
-                            <p className="text-gray-400 mt-2 max-w-md mb-6">Abra o WhatsApp no seu celular, vá para Aparelhos Conectados e escaneie o código abaixo.</p>
-                            <div className="bg-white p-4 rounded-lg">
+                    <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
+                        <h3 className="text-xl font-bold text-white mb-4">Conecte seu WhatsApp</h3>
+                        <p className="text-gray-400 mt-2 max-w-md mb-6">Abra o WhatsApp no seu celular, vá para Aparelhos Conectados e escaneie o código abaixo.</p>
+                        <div className="bg-white p-4 rounded-lg w-[282px] h-[282px] flex items-center justify-center">
+                            {qrCode ? (
                                 <img src={`data:image/png;base64,${qrCode}`} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
-                            </div>
+                            ) : (
+                                <div className="w-12 h-12 border-4 border-dashed border-gray-400 rounded-full animate-spin"></div>
+                            )}
                         </div>
-                    ) : (
-                        <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
-                            <QrCodeIcon className="w-16 h-16 text-white mb-4 animate-pulse"/>
-                            <h3 className="text-xl font-bold text-white">Aguardando Conexão</h3>
-                            <p className="text-gray-400 mt-2 max-w-md">{statusMessage}</p>
-                        </div>
-                    )}
+                    </div>
                 </>
             )}
         </div>
