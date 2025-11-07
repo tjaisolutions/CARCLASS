@@ -888,7 +888,6 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         setActiveConversationId('live');
         setActiveChatId(null);
         setIsManualMode(false);
-        addNotification("Nova conversa no WhatsApp iniciada.");
         
         thinkAndRespond(() => {
             addMessage('CAR CLASS', <p>Olá! Bem-vindo à <span className="font-bold">CAR CLASS</span>. Você já é nosso cliente? (Sim/Não)</p>, { isBot: true });
@@ -906,6 +905,44 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             setStatus('disconnected');
         }
     };
+
+    // New effect for polling messages
+    useEffect(() => {
+        if (status !== 'connected') return;
+
+        const intervalId = setInterval(async () => {
+            try {
+                const response = await fetch('/api/whatsapp/messages');
+                const newMessages = await response.json();
+
+                if (newMessages.length > 0) {
+                    for (const msg of newMessages) {
+                        const chatId = msg.from.replace('@c.us', '');
+                        const client = clients.find(c => c.whatsapp.includes(chatId));
+
+                        // If this is the first message in a while, start a new conversation
+                        if (isConversationFinished || messages.length === 0) {
+                             handleResetConversation();
+                             addNotification(`Nova conversa de ${client?.name || chatId}`);
+                        }
+
+                        // Add the message to the current live chat
+                        addMessage('Cliente', <p>{msg.body}</p>, { isBot: false });
+                        setActiveChatId(msg.from); // Set for manual reply
+                        
+                        // Let the bot process the input
+                        processUserInput(msg.body);
+                    }
+                }
+            } catch (error) {
+                console.error('Error polling for messages:', error);
+            }
+        }, 3000); // Poll every 3 seconds
+
+        return () => clearInterval(intervalId);
+
+    }, [status, isConversationFinished, messages.length, clients]);
+
 
     useEffect(() => {
         if (status === 'connected' && messages.length === 0) {
@@ -1045,7 +1082,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                             <h3 className="text-xl font-bold text-white mb-4">Conecte seu WhatsApp</h3>
                             <p className="text-gray-400 mt-2 max-w-md mb-6">Abra o WhatsApp no seu celular, vá para Aparelhos Conectados e escaneie o código abaixo.</p>
                             <div className="bg-white p-4 rounded-lg">
-                                <img src={qrCode} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
+                                <img src={`data:image/png;base64,${qrCode}`} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
                             </div>
                         </div>
                     ) : (
@@ -2143,10 +2180,7 @@ const App = () => {
     
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loginError, setLoginError] = useState('');
-    const [users, setUsers] = useState<User[]>(() => {
-        const ownerPermissions = ALL_TABS.reduce((acc, tab) => ({ ...acc, [tab.id]: true }), {});
-        return [{ id: 'user-owner', username: 'owner', password: '123', role: 'owner', permissions: ownerPermissions }];
-    });
+    const [users, setUsers] = useState<User[]>([]);
 
     const [operatingHours, setOperatingHours] = useState<OperatingHours>({
          daysOpen: [1, 2, 3, 4, 5, 6], // Mon-Sat
@@ -2172,6 +2206,30 @@ const App = () => {
 
     const isPolling = useRef(false);
 
+    const loadData = useCallback(async () => {
+        try {
+            const response = await fetch('/api/data');
+            const data = await response.json();
+            setClients(data.clients || []);
+            setServices(data.services || []);
+            setAppointments(data.appointments || []);
+            setMonthlyPlans(data.monthlyPlans || []);
+            setClientPlanUsages(data.clientPlanUsages || []);
+            setConversationLogs(data.conversationLogs || []);
+            setUsers(data.users || []);
+             if (data.operatingHours) setOperatingHours(data.operatingHours);
+            if (data.automatedMessages) setAutomatedMessages(data.automatedMessages);
+        } catch (error) {
+            console.error("Failed to load data from server:", error);
+            addNotification("Erro: Não foi possível carregar os dados do servidor.");
+        }
+    }, []);
+    
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+
     useEffect(() => {
         const checkStatus = async () => {
             if (!currentUser || isPolling.current) return;
@@ -2183,11 +2241,15 @@ const App = () => {
                 setQrCode(data.qrCode || null);
                 setStatusMessage(data.message || '');
 
-                if (data.isConnected) {
+                if (data.isConnected && whatsAppStatus !== 'connected') {
                     setWhatsAppStatus('connected');
+                    addNotification("WhatsApp conectado. Sincronizando contatos...");
+                    // Reload data to get newly synced contacts from server
+                    await loadData();
+                    addNotification("Sincronização de contatos concluída.");
                 } else if (data.qrCode) {
                     setWhatsAppStatus('loading'); // loading but with QR
-                } else {
+                } else if (!data.isConnected) {
                     setWhatsAppStatus('disconnected');
                 }
             } catch (error) {
@@ -2197,17 +2259,15 @@ const App = () => {
                 setStatusMessage('Erro de conexão com o servidor.');
             } finally {
                 isPolling.current = false;
-                // If not connected, poll again after a delay
-                if (whatsAppStatus !== 'connected') {
-                   setTimeout(checkStatus, 3000); // Poll again after 3s if not connected
-                }
             }
         };
 
-        if (currentUser && whatsAppStatus !== 'connected') {
-            checkStatus();
-        }
-    }, [currentUser, whatsAppStatus]); // Re-trigger when status changes
+        const intervalId = setInterval(checkStatus, 5000); // Poll every 5 seconds
+        checkStatus(); // Initial check
+
+        return () => clearInterval(intervalId);
+
+    }, [currentUser, whatsAppStatus, loadData]);
 
     const addNotification = (message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
