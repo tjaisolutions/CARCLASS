@@ -1,5 +1,3 @@
-
-
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
@@ -9,12 +7,9 @@ import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import { EventEmitter } from 'events';
-// Fix: Robust import for CommonJS module 'whatsapp-web.js' to prevent SyntaxError on deploy
-import WhatsAppWeb from 'whatsapp-web.js';
-const { Client, LocalAuth } = WhatsAppWeb;
-import qrcodeTerminal from 'qrcode-terminal';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import pino from 'pino';
 import qrcode from 'qrcode';
-import chromium from '@sparticuz/chromium';
 
 
 // --- SETUP ---
@@ -189,11 +184,9 @@ app.post('/api/chat', async (req, res) => {
 });
 
 
-// --- WHATSAPP BOT ---
-const WHATSAPP_SESSION_ID = 'CARCLASS-SESSION';
-let whatsappClient = null;
-const incomingMessages = []; // Fila para mensagens recebidas
-let isInitializing = false; // Flag to prevent restart loops
+// --- WHATSAPP BOT (BAILEYS) ---
+let sock = null;
+const SESSION_DIR = path.join(DATA_DIR, 'whatsapp_session');
 
 const connectionStatus = {
   isConnected: false,
@@ -201,205 +194,107 @@ const connectionStatus = {
   message: 'Serviço do WhatsApp não iniciado.',
 };
 
-const syncContacts = async (client) => {
-    try {
-        console.log('[WhatsApp] Sincronizando contatos...');
-        const contacts = await client.getContacts();
-        let newClientsCount = 0;
-        for (const contact of contacts) {
-            if (contact.isMyContact && contact.id.user) {
-                const contactNumber = contact.id.user;
-                const clientExists = aistudio.clients.some(c => c.whatsapp.includes(contactNumber));
+const syncContacts = async (waSocket) => {
+    // Baileys doesn't have a direct 'getContacts' method,
+    // this function can be adapted if contact sync is needed later.
+    console.log('[WhatsApp] Sincronização de contatos com Baileys pode ser implementada aqui se necessário.');
+    connectionStatus.message = `Conectado! ${aistudio.clients.length} clientes no total.`;
+};
 
-                if (!clientExists) {
-                    const newClient = {
-                        id: `c${Date.now()}${Math.random().toString(16).slice(2)}`,
-                        name: contact.name || contact.pushname || `Contato ${contactNumber}`,
-                        whatsapp: contactNumber,
-                        cpf: '',
-                        cars: [],
-                    };
-                    aistudio.clients.push(newClient);
-                    newClientsCount++;
-                }
+async function connectToWhatsApp() {
+    console.log('[WhatsApp] Iniciando conexão com Baileys...');
+    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    console.log(`[WhatsApp] Usando WA v${version.join('.')}, é a mais recente: ${isLatest}`);
+
+    sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }),
+        browser: ['CAR CLASS', 'Chrome', '1.0.0'],
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            console.log('[WhatsApp] QR Code recebido, preparando para o frontend.');
+            try {
+                const dataUrl = await qrcode.toDataURL(qr);
+                connectionStatus.isConnected = false;
+                connectionStatus.qrCode = dataUrl.replace('data:image/png;base64,', '');
+                connectionStatus.message = 'Por favor, escaneie o QR Code para conectar.';
+            } catch (err) {
+                console.error('[QRCode] Erro ao gerar a imagem do QR Code:', err);
+                connectionStatus.qrCode = null;
+                connectionStatus.message = 'Erro ao gerar QR Code.';
             }
         }
-        if (newClientsCount > 0) {
-            console.log(`[WhatsApp] ${newClientsCount} novo(s) cliente(s) adicionado(s) a partir dos contatos.`);
-            saveDb();
-        } else {
-            console.log('[WhatsApp] Nenhum novo contato para sincronizar.');
-        }
-        connectionStatus.message = `Conectado! ${aistudio.clients.length} clientes no total.`;
-    } catch (error) {
-        console.error('[WhatsApp] Erro ao sincronizar contatos:', error.message);
-    }
-}
 
-async function startWhatsAppBot() {
-  if (isInitializing) {
-    console.log('[WhatsApp] Inicialização já em andamento. Aguardando...');
-    return;
-  }
-  isInitializing = true;
-  console.log('[WhatsApp] Iniciando cliente com whatsapp-web.js...');
-  connectionStatus.message = 'Iniciando o cliente...';
-  connectionStatus.isConnected = false;
-  connectionStatus.qrCode = null;
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log(`[WhatsApp] Conexão fechada: ${lastDisconnect.error}, reconectando: ${shouldReconnect}`);
+            connectionStatus.isConnected = false;
 
-  try {
-    whatsappClient = new Client({
-      authStrategy: new LocalAuth({ clientId: WHATSAPP_SESSION_ID, dataPath: DATA_DIR }),
-      puppeteer: {
-        headless: 'new',
-        executablePath: await chromium.executablePath(),
-        args: [
-            ...chromium.args,
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--single-process', 
-            '--no-zygote',
-            '--disable-extensions'
-        ],
-      },
-      webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-      }
-    });
-    
-    whatsappClient.on('qr', async (qr) => {
-      console.log('[WhatsApp] Evento "qr" recebido. Gerando QR Code para o frontend.');
-      try {
-        const dataUrl = await qrcode.toDataURL(qr);
-        connectionStatus.isConnected = false;
-        connectionStatus.qrCode = dataUrl.replace('data:image/png;base64,', '');
-        connectionStatus.message = 'Por favor, escaneie o QR Code para conectar.';
-        console.log('[WhatsApp] QR Code enviado para o frontend.');
-      } catch (err) {
-        console.error('[QRCode] Erro ao gerar a imagem do QR Code:', err);
-        connectionStatus.qrCode = null;
-        connectionStatus.message = 'Erro ao gerar QR Code.';
-      }
-    });
-    
-    whatsappClient.on('ready', async () => {
-      console.log('[WhatsApp] Evento "ready" recebido. O cliente está conectado.');
-      
-      // ATUALIZAÇÃO IMEDIATA DO ESTADO - CRÍTICO PARA O FRONTEND
-      connectionStatus.isConnected = true;
-      connectionStatus.qrCode = null; // Limpa o QR code pois não é mais necessário
-      connectionStatus.message = 'Conectado! Sincronizando contatos...';
-      console.log('[WhatsApp] Objeto de status atualizado para: ', connectionStatus);
-
-      isInitializing = false; 
-      
-      // Sincroniza contatos em segundo plano
-      await syncContacts(whatsappClient);
-      
-      console.log('[WhatsApp] Sincronização de contatos concluída.');
-    });
-    
-    whatsappClient.on('disconnected', (reason) => {
-        console.log('[WhatsApp] Cliente foi desconectado:', reason);
-        connectionStatus.isConnected = false;
-        connectionStatus.message = 'Conexão perdida. Tentando reconectar...';
-        // A biblioteca tentará se reconectar sozinha.
-    });
-    
-    whatsappClient.on('auth_failure', (msg) => {
-        console.error('[WhatsApp] FALHA DE AUTENTICAÇÃO:', msg);
-        connectionStatus.isConnected = false;
-        connectionStatus.qrCode = null;
-        connectionStatus.message = 'Falha na autenticação. É necessário escanear o QR Code novamente.';
-        
-        // DELETA A SESSÃO LOCAL PARA FORÇAR UM NOVO QR CODE
-        const sessionPath = path.join(DATA_DIR, `.wwebjs_auth/session-${WHATSAPP_SESSION_ID}`);
-        if (fs.existsSync(sessionPath)) {
-            fs.rm(sessionPath, { recursive: true, force: true }, (err) => {
-                if (err) {
-                    console.error('[WhatsApp] Erro ao remover a pasta da sessão:', err);
-                } else {
-                    console.log('[WhatsApp] Pasta da sessão local removida devido à falha de autenticação.');
-                }
-                 // Reinicia o processo para gerar um novo QR
-                reconnect();
-            });
-        } else {
-            reconnect();
+            if (shouldReconnect) {
+                connectionStatus.message = 'Conexão perdida. Tentando reconectar...';
+                connectToWhatsApp();
+            } else {
+                console.log('[WhatsApp] Desconectado permanentemente. Removendo sessão...');
+                connectionStatus.message = 'Sessão encerrada. É necessário escanear o QR Code novamente.';
+                fs.rm(SESSION_DIR, { recursive: true, force: true }, (err) => {
+                    if (err) console.error('[WhatsApp] Erro ao remover pasta da sessão:', err);
+                    connectToWhatsApp(); // Restart to generate a new QR
+                });
+            }
+        } else if (connection === 'open') {
+            console.log('[WhatsApp] Conexão aberta com sucesso!');
+            connectionStatus.isConnected = true;
+            connectionStatus.qrCode = null;
+            connectionStatus.message = 'Conectado com sucesso!';
+            await syncContacts(sock);
         }
     });
-
-    whatsappClient.on('message', (message) => {
-        if (message.isStatus || message.from.endsWith('@g.us') || !message.body) {
+    
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.message || msg.key.fromMe || msg.key.remoteJid.endsWith('@g.us')) {
             return;
         }
-        console.log(`[WhatsApp] Mensagem recebida de ${message.from}: ${message.body}`);
-        incomingMessages.push({
-            from: message.from,
-            body: message.body,
-            timestamp: message.timestamp,
-        });
+        
+        const sender = msg.key.remoteJid;
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        
+        console.log(`[WhatsApp] Mensagem de ${sender}: ${text}`);
+        
+        // TODO: Adicionar lógica do chatbot aqui
     });
 
-    await whatsappClient.initialize();
-
-  } catch (error) {
-    console.error('Erro CRÍTICO ao inicializar o cliente WhatsApp:', error.message);
-    connectionStatus.isConnected = false;
-    connectionStatus.qrCode = null;
-    connectionStatus.message = `Erro na inicialização. Verifique os logs.`;
-    isInitializing = false; // Allow re-initialization
-    // Tentar reiniciar após um tempo em caso de falha crítica
-    setTimeout(reconnect, 30000); 
-  }
 }
-
-async function reconnect() {
-    if (isInitializing) return;
-    
-    console.log("[WhatsApp] Iniciando processo de reconexão...");
-    if (whatsappClient) {
-        console.log("[WhatsApp] Tentando destruir cliente existente...");
-        try {
-            await whatsappClient.destroy();
-        } catch (e) {
-            console.warn("[WhatsApp] Erro ao destruir cliente. Pode já estar destruído.", e.message);
-        } finally {
-            whatsappClient = null;
-        }
-    }
-    startWhatsAppBot();
-}
-
 
 app.get('/api/whatsapp/status', (req, res) => {
     res.json(connectionStatus);
 });
 
 app.get('/api/whatsapp/chats', async (req, res) => {
-    if (!whatsappClient || !connectionStatus.isConnected) {
+    if (!sock || !connectionStatus.isConnected) {
         return res.status(503).json([]);
     }
     try {
-        const chats = await whatsappClient.getChats();
-        // Filter for individual chats and get last message for sorting
-        const personalChats = await Promise.all(
-            chats.filter(chat => !chat.isGroup).map(async chat => {
-                const messages = await chat.fetchMessages({ limit: 1 });
-                return {
-                    id: chat.id,
-                    name: chat.name,
-                    lastMessage: messages.length > 0 ? messages[0] : null,
-                    timestamp: chat.timestamp,
-                };
-            })
-        );
-        res.json(personalChats);
+        // Baileys doesn't have a direct getChats method.
+        // We will return the clients from our DB as a chat list.
+        const chats = aistudio.clients.map(client => ({
+             id: { _serialized: `${client.whatsapp}@c.us` },
+             name: client.name || `Contato ${client.whatsapp}`,
+             lastMessage: { body: 'Inicie uma conversa!' },
+             timestamp: Date.now() / 1000,
+        }));
+        res.json(chats.sort((a,b) => b.timestamp - a.timestamp));
     } catch (error) {
-        console.error('Error fetching chats:', error);
+        console.error('Error fetching chats from DB:', error);
         res.status(500).json({ error: 'Failed to fetch chats' });
     }
 });
@@ -407,7 +302,7 @@ app.get('/api/whatsapp/chats', async (req, res) => {
 
 app.post('/api/whatsapp/send-message', async (req, res) => {
     const { chatId, message } = req.body;
-    if (!whatsappClient || !connectionStatus.isConnected) {
+    if (!sock || !connectionStatus.isConnected) {
         return res.status(500).json({ error: 'Cliente WhatsApp não está conectado.' });
     }
     if (!chatId || !message) {
@@ -415,7 +310,7 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
     }
 
     try {
-        await whatsappClient.sendMessage(chatId, message);
+        await sock.sendMessage(chatId, { text: message });
         res.status(200).json({ success: true, message: 'Mensagem enviada.' });
     } catch (error) {
         console.error('Erro ao enviar mensagem via WhatsApp:', error);
@@ -436,5 +331,5 @@ app.get('*', (req, res) => {
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
   console.log(`Diretório de dados: ${DATA_DIR}`);
-  startWhatsAppBot();
+  connectToWhatsApp();
 });
