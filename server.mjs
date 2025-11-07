@@ -92,9 +92,10 @@ const initializeWhatsApp = async () => {
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-gpu',
-                    '--disable-extensions', // Adicionado para estabilidade
-                    '--disable-sync', // Adicionado para estabilidade
-                    '--no-zygote', // Adicionado para estabilidade
+                    '--single-process', // Executa o Chromium em um único processo para economizar memória
+                    '--no-zygote',
+                    '--disable-extensions',
+                    '--disable-sync',
                 ],
             },
             tokenStore: 'file',
@@ -106,7 +107,7 @@ const initializeWhatsApp = async () => {
         client = clientInstance;
         startListeners(client);
     } catch (err) {
-        console.error('Erro CRÍTICO ao criar cliente WhatsApp:', err);
+        console.error('Erro CRÍTICO ao criar cliente WhatsApp:', err.message);
         whatsAppStatus = { isConnected: false, qrCode: null, message: 'Erro na inicialização.' };
         statusEmitter.emit('statusChange');
     }
