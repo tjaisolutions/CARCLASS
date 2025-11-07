@@ -64,7 +64,7 @@ const initializeWhatsApp = async () => {
 
         const clientInstance = await wppconnect.create({
             session: 'CARCLASS-SESSION',
-            whatsappVersion: '2.2412.54', // Fixa a versão para garantir estabilidade
+            deviceName: 'CARCLASS Server', // Ajuda na estabilidade da sessão
             catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
                 console.log('QR Code Recebido!');
                 whatsAppStatus = { isConnected: false, qrCode: urlCode, message: 'Escaneie o QR Code' };
@@ -85,13 +85,16 @@ const initializeWhatsApp = async () => {
             },
             puppeteerOptions: {
                 executablePath: executablePath,
-                headless: 'new', // Use modern headless mode for better stability
+                headless: 'new',
                 args: [
                     ...chromium.args,
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
-                    '--disable-gpu' // Explicitly disable GPU for server environments
+                    '--disable-gpu',
+                    '--disable-extensions', // Adicionado para estabilidade
+                    '--disable-sync', // Adicionado para estabilidade
+                    '--no-zygote', // Adicionado para estabilidade
                 ],
             },
             tokenStore: 'file',
