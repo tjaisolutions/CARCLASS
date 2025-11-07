@@ -23,290 +23,255 @@ if (!fs.existsSync(DATA_DIR)) {
 const app = express();
 const port = process.env.PORT || 3001;
 
-// --- GERENCIAMENTO DE ESTADO DO WHATSAPP ---
-let whatsAppStatus = {
-    isConnected: false,
-    qrCode: null,
-    message: 'Inicializando...'
-};
-const statusEmitter = new EventEmitter(); // Cria o notificador de status
+// --- GERENCIAMENTO DE ESTADO SIMPLIFICADO ---
+// Em um app real, isso seria um banco de dados como MongoDB ou PostgreSQL.
+const DB_FILE_PATH = path.join(DATA_DIR, 'db.json');
+let aistudio;
 
-let client; // Declarar o cliente no escopo superior
-
-// --- MONGODB CONNECTION ---
-const MONGO_URI = process.env.MONGO_URI;
-if (!MONGO_URI) {
-    console.error("ERRO: A variável de ambiente MONGO_URI não foi definida no servidor.");
-    process.exit(1);
-}
-
-const handleReconnect = () => {
-    console.log("Tentando reconectar...");
-    if (client) {
-        client.close().then(() => {
-            console.log("Cliente antigo fechado. Reinicializando...");
-            setTimeout(initializeWhatsApp, 2000);
-        }).catch(e => {
-            console.error("Erro ao fechar cliente, forçando nova inicialização.", e);
-            initializeWhatsApp();
-        });
+const loadDb = () => {
+    if (fs.existsSync(DB_FILE_PATH)) {
+        console.log('[Persistence] Carregando dados do arquivo...');
+        const data = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+        aistudio = JSON.parse(data);
     } else {
-        initializeWhatsApp();
+        console.log('[Persistence] Nenhum arquivo de dados encontrado, iniciando com estado padrão.');
+        aistudio = {
+            clients: [],
+            services: [],
+            appointments: [],
+            monthlyPlans: [],
+            clientPlanUsages: [],
+            operatingHours: {
+                daysOpen: [1, 2, 3, 4, 5, 6],
+                availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
+            },
+            automatedMessages: [],
+            users: [{ id: 'user-owner', username: 'owner', password: '123', role: 'owner', permissions: {} }],
+            conversationLogs: [],
+            catalogFiles: [],
+        };
     }
 };
 
-const initializeWhatsApp = async () => {
-    console.log('Inicializando cliente WhatsApp com @wppconnect...');
-    
-    try {
-        const executablePath = await chromium.executablePath();
-        console.log(`[Chromium] Usando executável em: ${executablePath || 'padrão'}`);
-
-        const clientInstance = await wppconnect.create({
-            session: 'CARCLASS-SESSION',
-            deviceName: 'CARCLASS Server', // Ajuda na estabilidade da sessão
-            catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
-                console.log('QR Code Recebido!');
-                whatsAppStatus = { isConnected: false, qrCode: urlCode, message: 'Escaneie o QR Code' };
-                statusEmitter.emit('statusChange');
-            },
-            statusFind: (statusSession, session) => {
-                console.log('Status da Sessão:', statusSession);
-                if (statusSession === 'inChat' || statusSession === 'isLogged') {
-                    if (!whatsAppStatus.isConnected) {
-                        console.log('Cliente WhatsApp está pronto e conectado!');
-                        whatsAppStatus = { isConnected: true, qrCode: null, message: 'Conectado' };
-                        statusEmitter.emit('statusChange');
-                    }
-                } else {
-                     whatsAppStatus = { isConnected: false, qrCode: null, message: `Status: ${statusSession}` };
-                     statusEmitter.emit('statusChange');
-                }
-            },
-            puppeteerOptions: {
-                executablePath: executablePath,
-                headless: 'new',
-                args: [
-                    ...chromium.args,
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--single-process', // Executa o Chromium em um único processo para economizar memória
-                    '--no-zygote',
-                    '--disable-extensions',
-                    '--disable-sync',
-                ],
-            },
-            tokenStore: 'file',
-            sessionDataPath: DATA_DIR,
-            logQR: false,
-            autoClose: 0,
-        });
-    
-        client = clientInstance;
-        startListeners(client);
-    } catch (err) {
-        console.error('Erro CRÍTICO ao criar cliente WhatsApp:', err.message);
-        whatsAppStatus = { isConnected: false, qrCode: null, message: 'Erro na inicialização.' };
-        statusEmitter.emit('statusChange');
-    }
+const saveDb = () => {
+    console.log('[Persistence] Salvando dados no arquivo...');
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(aistudio, null, 2));
 };
 
-function startListeners(client) {
-    client.onMessage(async (message) => {
-        if (message.isGroupMsg || message.from === 'status@broadcast' || !message.body || message.fromMe) {
-            return;
-        }
-        console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
-        if (message.body.toLowerCase() === 'oi') {
-            await client.sendText(message.from, 'Olá! Bem-vindo à CAR CLASS. Como posso ajudar?');
-        }
-    });
+loadDb();
 
-    client.onStateChange((state) => {
-        console.log('Estado do cliente mudou:', state);
-        if (state === 'CONFLICT' || state === 'UNPAIRED' || state === 'UNPAIRED_IDLE') {
-            console.log('Desconectado. Tentando reconectar automaticamente...');
-            handleReconnect();
-        }
-    });
-}
-
-
-console.log('Conectando ao MongoDB...');
-mongoose.connect(MONGO_URI).then(() => {
-    console.log('MongoDB conectado com sucesso.');
-}).catch(err => {
-    console.error('Falha ao conectar ao MongoDB', err);
-    process.exit(1);
-});
-
-// Inicializa o WhatsApp na inicialização do servidor
-initializeWhatsApp();
 
 // --- MIDDLEWARE ---
 app.use(express.json());
-const upload = multer({ storage: multer.memoryStorage() });
+app.use(express.static(path.join(__dirname))); // Servir arquivos estáticos da raiz
 
-// --- CONFIGURAÇÃO DA API GEMINI ---
-const apiKey = process.env.API_KEY;
-if (!apiKey) {
-  console.error("ERRO: A variável de ambiente API_KEY não foi definida no servidor.");
-}
-const ai = new GoogleGenAI({ apiKey });
-
-// --- ROTAS DA API ---
-
-app.get('/api/whatsapp/status', (req, res) => {
-    if (whatsAppStatus.isConnected) {
-        return res.json(whatsAppStatus);
-    }
-    const waitForStatusChange = () => {
-        res.json(whatsAppStatus);
-        clearTimeout(timeout);
-    };
-    const timeout = setTimeout(() => {
-        statusEmitter.off('statusChange', waitForStatusChange);
-        res.json(whatsAppStatus);
-    }, 25000);
-    statusEmitter.once('statusChange', waitForStatusChange);
+// --- API ROUTES ---
+app.get('/api/data', (req, res) => {
+    res.json(aistudio);
 });
 
-app.post('/api/whatsapp/reconnect', (req, res) => {
-    console.log("Recebida solicitação de reconexão do frontend.");
-    res.status(202).json({ message: 'Tentativa de reconexão iniciada.' });
-    handleReconnect();
+app.post('/api/data', (req, res) => {
+    aistudio = { ...aistudio, ...req.body };
+    saveDb();
+    res.status(200).json({ message: 'Dados salvos com sucesso!' });
+});
+
+// --- GEMINI API ---
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+const serviceSelectionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        action: {
+            type: Type.STRING,
+            enum: ["REQUEST_MORE_INFO", "BOOK_SERVICE", "NO_ACTION"],
+            description: "A ação a ser tomada. 'BOOK_SERVICE' se o usuário confirmou um ou mais serviços. 'REQUEST_MORE_INFO' se o usuário está perguntando sobre serviços, mas não confirmou qual. 'NO_ACTION' para saudações ou respostas não relacionadas a serviços."
+        },
+        serviceIds: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.STRING
+            },
+            description: "Um array de IDs de serviço que o usuário deseja agendar. O ID deve corresponder exatamente a um dos IDs fornecidos na lista de serviços."
+        },
+        responseText: {
+            type: Type.STRING,
+            description: "Uma resposta amigável para o usuário, informando a próxima etapa ou confirmando o entendimento."
+        }
+    },
+    required: ["action", "responseText"]
+};
+
+app.post('/api/chat', async (req, res) => {
+    const { userInput, services } = req.body;
+    if (!userInput || !services) {
+        return res.status(400).json({ error: 'Input do usuário e lista de serviços são obrigatórios.' });
+    }
+
+    const serviceList = services.map(s => `ID: ${s.id}, Nome: ${s.name}, Descrição: ${s.description}, Preço: R$${s.price}`).join('\n');
+
+    const prompt = `
+        Você é o chatbot de atendimento da estética automotiva "CAR CLASS".
+        Seu objetivo é identificar qual(is) serviço(s) o cliente deseja agendar a partir da conversa.
+
+        Lista de Serviços Disponíveis:
+        ${serviceList}
+
+        Analise a MENSAGEM DO USUÁRIO abaixo e determine a ação a ser tomada.
+        - Se o usuário confirmar explicitamente um ou mais serviços para agendar, defina action como 'BOOK_SERVICE' e inclua os IDs dos serviços em 'serviceIds'.
+        - Se o usuário fizer uma pergunta geral sobre os serviços ou não tiver certeza, defina action como 'REQUEST_MORE_INFO'.
+        - Se a mensagem for uma saudação ou não estiver relacionada a serviços, defina action como 'NO_ACTION'.
+        - A 'responseText' deve ser sempre amigável e útil. Se for agendar, confirme os serviços que entendeu. Se pedir mais informações, ofereça ajuda.
+
+        MENSAGEM DO USUÁRIO: "${userInput}"
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{ parts: [{ text: prompt }] }],
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: serviceSelectionSchema,
+            }
+        });
+
+        const jsonResponse = JSON.parse(response.text);
+        res.json(jsonResponse);
+    } catch (error) {
+        console.error('Erro da API Gemini:', error);
+        res.status(500).json({ error: 'Ocorreu um erro ao processar sua solicitação.' });
+    }
+});
+
+
+// --- WHATSAPP BOT ---
+const WHATSAPP_SESSION_ID = 'CARCLASS-SESSION';
+const connectionStatus = {
+  isConnected: false,
+  qrCode: null,
+  message: 'Serviço do WhatsApp não iniciado.',
+};
+let whatsappClient = null;
+
+// This function will be called to initialize the bot
+async function startWhatsAppBot() {
+  console.log('[WhatsApp] Iniciando cliente...');
+  connectionStatus.message = 'Iniciando o cliente wppconnect...';
+  connectionStatus.isConnected = false;
+  connectionStatus.qrCode = null;
+
+  try {
+    whatsappClient = await wppconnect.create({
+      session: WHATSAPP_SESSION_ID,
+      whatsappVersion: '2.2413.52', // Estabilizando a versão para evitar falhas com a 'latest'
+      catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
+        console.log('[WhatsApp] Novo QR Code gerado. Tentativa:', attempts);
+        connectionStatus.qrCode = base64Qr;
+        connectionStatus.message = 'Aguardando leitura do QR Code.';
+      },
+      statusFind: (statusSession, session) => {
+        console.log(`[WhatsApp] Status da sessão: ${statusSession} (${session})`);
+        connectionStatus.message = `Status da sessão: ${statusSession}`;
+        if (statusSession === 'isLogged' || statusSession === 'qrReadSuccess' || statusSession === 'chatsAvailable') {
+            connectionStatus.isConnected = true;
+            connectionStatus.qrCode = null;
+            connectionStatus.message = 'Cliente conectado com sucesso!';
+        }
+        if (statusSession === 'notLogged' || statusSession === 'deviceNotConnected' || statusSession === 'desconnectedMobile') {
+            connectionStatus.isConnected = false;
+        }
+      },
+      headless: 'new',
+      puppeteerOptions: {
+        executablePath: await chromium.executablePath(),
+        args: [
+            ...chromium.args,
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu'
+        ],
+      },
+      autoClose: 99999999,
+      // Fix: Add deviceName for better session stability.
+      deviceName: 'CARCLASS_SERVER',
+    });
+
+    console.log('[WhatsApp] Cliente criado com sucesso!');
+    connectionStatus.isConnected = true;
+    connectionStatus.message = 'Conectado ao WhatsApp.';
+
+    whatsappClient.onMessage((message) => {
+        console.log(`[WhatsApp] Mensagem recebida de ${message.from}: ${message.body}`);
+        // Aqui você pode adicionar a lógica para emitir um evento para o front-end
+        // ou processar a mensagem com o Gemini.
+    });
+
+  } catch (error) {
+    console.error('Erro CRÍTICO ao criar cliente WhatsApp:', error.message);
+    connectionStatus.isConnected = false;
+    connectionStatus.qrCode = null;
+    connectionStatus.message = `Erro: ${error.message}`;
+    // Try to restart after a delay
+    setTimeout(startWhatsAppBot, 30000);
+  }
+}
+
+// Endpoint para verificar o status da conexão
+app.get('/api/whatsapp/status', (req, res) => {
+    res.json(connectionStatus);
+});
+
+// Endpoint para forçar a reconexão
+app.post('/api/whatsapp/reconnect', async (req, res) => {
+    if (whatsappClient) {
+        try {
+            await whatsappClient.close();
+        } catch (e) {
+            console.warn("Erro ao fechar cliente existente, pode já estar fechado.", e.message);
+        }
+    }
+    whatsappClient = null;
+    connectionStatus.isConnected = false;
+    connectionStatus.message = 'Reconectando...';
+    startWhatsAppBot(); // Inicia o processo novamente
+    res.status(200).send({ message: 'Processo de reconexão iniciado.' });
 });
 
 app.post('/api/whatsapp/send-message', async (req, res) => {
     const { chatId, message } = req.body;
+    if (!whatsappClient || !connectionStatus.isConnected) {
+        return res.status(500).json({ error: 'Cliente WhatsApp não está conectado.' });
+    }
     if (!chatId || !message) {
         return res.status(400).json({ error: 'chatId e message são obrigatórios.' });
     }
-    if (!whatsAppStatus.isConnected || !client) {
-        return res.status(503).json({ error: 'Cliente WhatsApp não está pronto.' });
-    }
+
     try {
-        await client.sendText(chatId, message);
-        res.status(200).json({ success: true });
-    } catch (e) {
-        console.error("Erro ao enviar mensagem manual:", e);
-        res.status(500).json({ success: false, error: 'Falha ao enviar mensagem.' });
+        await whatsappClient.sendText(chatId, message);
+        res.status(200).json({ success: true, message: 'Mensagem enviada.' });
+    } catch (error) {
+        console.error('Erro ao enviar mensagem via WhatsApp:', error);
+        res.status(500).json({ error: 'Falha ao enviar mensagem.', details: error.message });
     }
 });
 
-app.post('/api/chat', async (req, res) => {
-  const { userInput, services } = req.body;
-  if (!userInput || !services) {
-    return res.status(400).json({ error: 'userInput e services são obrigatórios.' });
-  }
-  const serviceListForPrompt = services.map((s) => `- ID: "${s.id}", Nome: "${s.name}", Preço: R$${s.price.toFixed(2)}, Descrição: "${s.description}"`).join('\n');
-  const prompt = `Você é um assistente de agendamento para a estética automotiva CAR CLASS. O cliente recebeu um catálogo com serviços e respondeu. Sua tarefa é analisar a mensagem do cliente e a lista de serviços para decidir a ação.
 
-Lista de Serviços:
-${serviceListForPrompt}
-
-Mensagem do Cliente: "${userInput}"
-
-Com base na mensagem, responda APENAS com um objeto JSON válido com este formato:
-{
-  "action": "BOOK_SERVICE" | "ANSWER_QUESTION" | "CLARIFY",
-  "serviceIds": ["id_do_servico_1", "id_do_servico_2"],
-  "responseText": "Sua resposta para o cliente."
-}
-
-- Se o cliente claramente escolheu um ou mais serviços, use action "BOOK_SERVICE", inclua os serviceIds, e confirme em responseText.
-- Se o cliente fez uma pergunta (preço, duração, etc), use action "ANSWER_QUESTION", responda em responseText e deixe serviceIds vazio.
-- Se for ambíguo (ex: "lavagem", quando há duas), use action "CLARIFY", peça para esclarecer em responseText e deixe serviceIds vazio.`;
-  
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            action: { type: Type.STRING },
-            serviceIds: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
-            },
-            responseText: { type: Type.STRING }
-          },
-          required: ['action', 'responseText']
-        }
-      }
-    });
-    
-    const result = JSON.parse(response.text);
-    res.json(result);
-  } catch (error) {
-    console.error('Erro na API do Gemini (Chat):', error);
-    res.status(500).json({ error: 'Falha ao se comunicar com a IA.' });
-  }
-});
-
-app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) => {
-  const file = req.file;
-  if (!file) {
-    return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
-  }
-  const base64File = file.buffer.toString('base64');
-  const isPdf = file.mimetype === 'application/pdf';
-  const prompt = isPdf
-      ? `Extraia todos os serviços do documento PDF. Para cada serviço, identifique o nome, descrição, duração em minutos, preço em BRL e, se houver, o intervalo de manutenção em meses. Retorne os dados em um array de objetos JSON, seguindo este schema. Campos numéricos devem ser apenas números.`
-      : `Extraia todos os serviços da imagem do catálogo. Para cada serviço, identifique o nome, descrição, duração em minutos, preço em BRL e, se houver, o intervalo de manutenção em meses. Retorne os dados em um array de objetos JSON, seguindo este schema. Campos numéricos devem ser apenas números.`;
-  try {
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: {
-            parts: [
-                { text: prompt },
-                {
-                    inlineData: {
-                        mimeType: file.mimetype,
-                        data: base64File,
-                    },
-                },
-            ],
-        },
-        config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        name: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        duration: { type: Type.NUMBER },
-                        price: { type: Type.NUMBER },
-                        maintenanceIntervalMonths: { type: Type.NUMBER },
-                    },
-                    required: ["name", "description", "duration", "price"]
-                }
-            }
-        }
-    });
-    const extractedServices = JSON.parse(response.text);
-    res.json(extractedServices);
-  } catch(error) {
-    console.error('Erro na API do Gemini (Catalog):', error);
-    res.status(500).json({ error: 'Falha ao processar o arquivo com a IA.' });
-  }
-});
-
-// --- SERVINDO O FRONTEND ---
-app.use(express.static(path.join(__dirname, 'dist')));
-
+// --- ROTA CATCH-ALL ---
+// Deve ser a última rota para não sobrescrever as rotas da API
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 app.listen(port, () => {
-  console.log(`Servidor unificado (Frontend + Backend) rodando em http://localhost:${port}`);
+  console.log(`Servidor rodando na porta ${port}`);
+  console.log(`Diretório de dados: ${DATA_DIR}`);
+  // Inicia o bot do WhatsApp após o servidor Express estar no ar
+  startWhatsAppBot();
 });
