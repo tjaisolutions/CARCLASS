@@ -193,6 +193,7 @@ app.post('/api/chat', async (req, res) => {
 const WHATSAPP_SESSION_ID = 'CARCLASS-SESSION';
 let whatsappClient = null;
 const incomingMessages = []; // Fila para mensagens recebidas
+let isInitializing = false; // Flag to prevent restart loops
 
 const connectionStatus = {
   isConnected: false,
@@ -236,6 +237,11 @@ const syncContacts = async (client) => {
 }
 
 async function startWhatsAppBot() {
+  if (isInitializing) {
+    console.log('[WhatsApp] Inicialização já em andamento. Aguardando...');
+    return;
+  }
+  isInitializing = true;
   console.log('[WhatsApp] Iniciando cliente com whatsapp-web.js...');
   connectionStatus.message = 'Iniciando o cliente...';
   connectionStatus.isConnected = false;
@@ -252,7 +258,9 @@ async function startWhatsAppBot() {
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--single-process', // Crucial for low-memory environments
+            '--disable-extensions'
         ],
       },
       webVersionCache: {
@@ -262,8 +270,8 @@ async function startWhatsAppBot() {
     });
     
     whatsappClient.on('qr', async (qr) => {
-      console.log('[WhatsApp] QR Code recebido, gerando para o terminal e frontend.');
-      qrcodeTerminal.generate(qr, { small: true });
+      console.log('[WhatsApp] QR Code recebido, gerando para o frontend.');
+      // qrcodeTerminal.generate(qr, { small: true }); // Optional: keep for debug if needed
       try {
         const dataUrl = await qrcode.toDataURL(qr);
         connectionStatus.qrCode = dataUrl.replace('data:image/png;base64,', '');
@@ -280,6 +288,7 @@ async function startWhatsAppBot() {
       connectionStatus.isConnected = true;
       connectionStatus.qrCode = null;
       connectionStatus.message = 'Conectado com sucesso!';
+      isInitializing = false; // Successfully initialized
       await syncContacts(whatsappClient);
     });
     
@@ -288,6 +297,7 @@ async function startWhatsAppBot() {
         connectionStatus.isConnected = false;
         connectionStatus.qrCode = null;
         connectionStatus.message = 'Desconectado. Tentando reconectar...';
+        isInitializing = false; // Allow re-initialization
         // The library might try to reconnect automatically, but we can also trigger a restart.
         setTimeout(startWhatsAppBot, 15000); // Wait 15s before trying to restart
     });
@@ -307,10 +317,11 @@ async function startWhatsAppBot() {
     await whatsappClient.initialize();
 
   } catch (error) {
-    console.error('Erro CRÍTICO ao inicializar o cliente WhatsApp:', error);
+    console.error('Erro CRÍTICO ao inicializar o cliente WhatsApp:', error.message);
     connectionStatus.isConnected = false;
     connectionStatus.qrCode = null;
     connectionStatus.message = `Erro na inicialização. Verifique os logs.`;
+    isInitializing = false; // Allow re-initialization
     // Try to restart after a longer delay on critical failure.
     setTimeout(startWhatsAppBot, 60000); 
   }
