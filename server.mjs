@@ -1,3 +1,4 @@
+
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
@@ -354,16 +355,31 @@ app.get('/api/whatsapp/status', (req, res) => {
     res.json(connectionStatus);
 });
 
-app.get('/api/whatsapp/messages', (req, res) => {
-    res.json(incomingMessages);
-    incomingMessages.length = 0; // Clear the queue after the frontend consumes it
+app.get('/api/whatsapp/chats', async (req, res) => {
+    if (!whatsappClient || !connectionStatus.isConnected) {
+        return res.status(503).json([]);
+    }
+    try {
+        const chats = await whatsappClient.getChats();
+        // Filter for individual chats and get last message for sorting
+        const personalChats = await Promise.all(
+            chats.filter(chat => !chat.isGroup).map(async chat => {
+                const messages = await chat.fetchMessages({ limit: 1 });
+                return {
+                    id: chat.id,
+                    name: chat.name,
+                    lastMessage: messages.length > 0 ? messages[0] : null,
+                    timestamp: chat.timestamp,
+                };
+            })
+        );
+        res.json(personalChats);
+    } catch (error) {
+        console.error('Error fetching chats:', error);
+        res.status(500).json({ error: 'Failed to fetch chats' });
+    }
 });
 
-app.post('/api/whatsapp/reconnect', async (req, res) => {
-    connectionStatus.message = 'Reconectando manualmente...';
-    reconnect();
-    res.status(200).send({ message: 'Processo de reconexão iniciado.' });
-});
 
 app.post('/api/whatsapp/send-message', async (req, res) => {
     const { chatId, message } = req.body;
