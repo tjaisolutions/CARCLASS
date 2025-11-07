@@ -115,7 +115,13 @@ app.get('/api/data', (req, res) => {
 });
 
 app.post('/api/data', (req, res) => {
-    aistudio = { ...aistudio, ...req.body };
+    // Merge received data with existing server state
+    // This allows saving partial updates (e.g., just clients)
+    for (const key in req.body) {
+        if (Object.prototype.hasOwnProperty.call(aistudio, key)) {
+            aistudio[key] = req.body[key];
+        }
+    }
     saveDb();
     res.status(200).json({ message: 'Dados salvos com sucesso!' });
 });
@@ -421,14 +427,6 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
     }
 });
 
-
-// Servir arquivos estáticos da pasta 'dist' (build de produção)
-app.use(express.static(path.join(__dirname, 'dist')));
-
-// --- ROTA CATCH-ALL ---
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 app.listen(port, () => {
