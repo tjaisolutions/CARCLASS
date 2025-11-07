@@ -495,6 +495,7 @@ interface WAMessage {
     id: { fromMe: boolean; remote: string; };
     body: string;
     timestamp: number;
+    isBot?: boolean;
 }
 
 
@@ -608,7 +609,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         const optimisticMessage: WAMessage = {
             id: { fromMe: true, remote: activeChatId },
             body: messageContent,
-            timestamp: Date.now() / 1000
+            timestamp: Date.now() / 1000,
+            isBot: false,
         };
         setMessages(prev => [...prev, optimisticMessage]);
 
@@ -733,7 +735,12 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                             </div>
                             <div className="p-4 space-y-4 flex-grow overflow-y-auto">
                                 {messages.map((msg, index) => (
-                                    <ChatMessage key={index} sender={msg.id.fromMe ? 'agent' : 'user'} content={<p>{msg.body}</p>} operatorName={currentUser.username}/>
+                                    <ChatMessage 
+                                        key={index} 
+                                        sender={msg.id.fromMe ? (msg.isBot ? 'bot' : 'agent') : 'user'} 
+                                        content={<p>{msg.body}</p>} 
+                                        operatorName={currentUser.username}
+                                    />
                                 ))}
                             </div>
                             <div className="p-4 border-t border-white/10">
