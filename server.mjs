@@ -245,10 +245,17 @@ async function connectToWhatsApp() {
             } else {
                 console.log('[WhatsApp] Desconectado permanentemente. Removendo sessão...');
                 connectionStatus.message = 'Sessão encerrada. É necessário escanear o QR Code novamente.';
-                fs.rm(SESSION_DIR, { recursive: true, force: true }, (err) => {
-                    if (err) console.error('[WhatsApp] Erro ao remover pasta da sessão:', err);
-                    connectToWhatsApp(); // Restart to generate a new QR
-                });
+                try {
+                    // FIX: Use synchronous directory removal to prevent race conditions.
+                    if (fs.existsSync(SESSION_DIR)) {
+                        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+                        console.log('[WhatsApp] Diretório da sessão removido com sucesso.');
+                    }
+                } catch (err) {
+                    console.error('[WhatsApp] Erro ao remover pasta da sessão:', err);
+                }
+                // Restart the connection process to generate a new QR code.
+                connectToWhatsApp(); 
             }
         } else if (connection === 'open') {
             console.log('[WhatsApp] Conexão aberta com sucesso!');
