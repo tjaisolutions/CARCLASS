@@ -120,7 +120,7 @@ app.post('/api/data', (req, res) => {
     res.status(200).json({ message: 'Dados salvos com sucesso!' });
 });
 
-// --- GEMINI API ---
+// --- GEMINI API & SCHEMA ---
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const serviceSelectionSchema = {
@@ -146,56 +146,12 @@ const serviceSelectionSchema = {
     required: ["action", "responseText"]
 };
 
-app.post('/api/chat', async (req, res) => {
-    const { userInput, services } = req.body;
-    if (!userInput || !services) {
-        return res.status(400).json({ error: 'Input do usuário e lista de serviços são obrigatórios.' });
-    }
-
-    const serviceList = services.map(s => `ID: ${s.id}, Nome: ${s.name}, Descrição: ${s.description}, Preço: R$${s.price}`).join('\n');
-
-    const prompt = `
-        Você é o chatbot de atendimento da estética automotiva "CAR CLASS".
-        Seu objetivo é identificar qual(is) serviço(s) o cliente deseja agendar a partir da conversa.
-
-        Lista de Serviços Disponíveis:
-        ${serviceList}
-
-        Analise a MENSAGEM DO USUÁRIO abaixo e determine a ação a ser tomada.
-        - Se o usuário confirmar explicitamente um ou mais serviços para agendar, defina action como 'BOOK_SERVICE' e inclua os IDs dos serviços em 'serviceIds'.
-        - Se o usuário fizer uma pergunta geral sobre os serviços ou não tiver certeza, defina action como 'REQUEST_MORE_INFO'.
-        - Se a mensagem for uma saudação ou não estiver relacionada a serviços, defina action como 'NO_ACTION'.
-        - A 'responseText' deve ser sempre amigável e útil. Se for agendar, confirme os serviços que entendeu. Se pedir mais informações, ofereça ajuda.
-
-        MENSAGEM DO USUÁRIO: "${userInput}"
-    `;
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [{ parts: [{ text: prompt }] }],
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: serviceSelectionSchema,
-            }
-        });
-
-        const jsonResponse = JSON.parse(response.text);
-        res.json(jsonResponse);
-    } catch (error) {
-        console.error('Erro da API Gemini:', error);
-        res.status(500).json({ error: 'Ocorreu um erro ao processar sua solicitação.' });
-    }
-});
-
 
 // --- WHATSAPP BOT (BAILEYS) ---
 let sock = null;
 const SESSION_DIR = path.join(DATA_DIR, 'whatsapp_session');
 const waEvents = new EventEmitter();
 waEvents.setMaxListeners(20); // Aumenta o limite de listeners para evitar warnings
-
-let eventSubscribers = [];
 
 const syncContacts = async (waSocket) => {
     // Baileys doesn't have a direct 'getContacts' method,
@@ -254,7 +210,6 @@ async function connectToWhatsApp() {
                 } catch (err) {
                     console.error('[WhatsApp] Erro ao remover pasta da sessão:', err);
                 }
-                // A nova conexão irá gerar um novo QR Code
                 connectToWhatsApp(); 
             }
         } else if (connection === 'open') {
@@ -279,25 +234,80 @@ async function connectToWhatsApp() {
         }
         
         const chatId = msg.key.remoteJid;
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        const userInput = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
         const senderName = msg.pushName || chatId.split('@')[0];
         
-        console.log(`[WhatsApp] Mensagem de ${senderName} (${chatId}): ${text}`);
+        console.log(`[WhatsApp] Mensagem de ${senderName} (${chatId}): ${userInput}`);
         
+        // 1. Salva a mensagem do usuário e notifica o frontend
         if (!aistudio.wa_chats[chatId]) {
             aistudio.wa_chats[chatId] = { id: chatId, name: senderName, messages: [] };
         }
         aistudio.wa_chats[chatId].name = senderName;
         
-        const messageData = {
+        const userMessageData = {
             id: { fromMe: false, remote: chatId },
-            body: text,
+            body: userInput,
             timestamp: msg.messageTimestamp,
         };
-        aistudio.wa_chats[chatId].messages.push(messageData);
+        aistudio.wa_chats[chatId].messages.push(userMessageData);
+        waEvents.emit('event', { type: 'message', senderName, data: userMessageData });
         saveDb();
 
-        waEvents.emit('event', { type: 'message', senderName, data: messageData });
+        // 2. Aciona o chatbot para responder
+        try {
+            const serviceList = aistudio.services.map(s => `ID: ${s.id}, Nome: ${s.name}, Descrição: ${s.description}, Preço: R$${s.price}`).join('\n');
+            const prompt = `
+                Você é o chatbot de atendimento da estética automotiva "CAR CLASS".
+                Seu objetivo é identificar qual(is) serviço(s) o cliente deseja agendar a partir da conversa.
+
+                Lista de Serviços Disponíveis:
+                ${serviceList}
+
+                Analise a MENSAGEM DO USUÁRIO abaixo e determine a ação a ser tomada.
+                - Se o usuário confirmar explicitamente um ou mais serviços para agendar, defina action como 'BOOK_SERVICE' e inclua os IDs dos serviços em 'serviceIds'.
+                - Se o usuário fizer uma pergunta geral sobre os serviços ou não tiver certeza, defina action como 'REQUEST_MORE_INFO'.
+                - Se a mensagem for uma saudação ou não estiver relacionada a serviços, defina action como 'NO_ACTION'.
+                - A 'responseText' deve ser sempre amigável e útil. Se for agendar, confirme os serviços que entendeu. Se pedir mais informações, ofereça ajuda.
+
+                MENSAGEM DO USUÁRIO: "${userInput}"
+            `;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: [{ parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: serviceSelectionSchema,
+                }
+            });
+
+            const jsonResponse = JSON.parse(response.text);
+            const botResponseText = jsonResponse.responseText;
+
+            if (botResponseText) {
+                // 3. Envia a resposta do bot via WhatsApp
+                await sock.sendMessage(chatId, { text: botResponseText });
+
+                // 4. Salva a mensagem do bot e notifica o frontend
+                const botMessageData = {
+                    id: { fromMe: true, remote: chatId },
+                    body: botResponseText,
+                    timestamp: Math.floor(Date.now() / 1000),
+                    isBot: true, // Flag para identificar a mensagem do bot
+                };
+                aistudio.wa_chats[chatId].messages.push(botMessageData);
+                waEvents.emit('event', { type: 'message', senderName, data: botMessageData });
+                saveDb();
+            }
+        } catch (error) {
+            console.error('[Gemini/WhatsApp] Erro ao processar ou responder mensagem:', error);
+            try {
+                await sock.sendMessage(chatId, { text: 'Desculpe, estou com um problema para processar sua mensagem. Um de nossos atendentes responderá em breve.' });
+            } catch (sendError) {
+                console.error('[WhatsApp] Falha ao enviar mensagem de erro:', sendError);
+            }
+        }
     });
 
 }
@@ -365,6 +375,7 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
             id: { fromMe: true, remote: chatId },
             body: message,
             timestamp: Math.floor(Date.now() / 1000),
+            isBot: false, // Mensagem manual do agente
         };
         aistudio.wa_chats[chatId].messages.push(messageData);
         saveDb();
