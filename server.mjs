@@ -193,18 +193,14 @@ app.post('/api/chat', async (req, res) => {
 let sock = null;
 const SESSION_DIR = path.join(DATA_DIR, 'whatsapp_session');
 const waEvents = new EventEmitter();
+waEvents.setMaxListeners(20); // Aumenta o limite de listeners para evitar warnings
 
-const connectionStatus = {
-  isConnected: false,
-  qrCode: null,
-  message: 'Serviço do WhatsApp não iniciado.',
-};
+let eventSubscribers = [];
 
 const syncContacts = async (waSocket) => {
     // Baileys doesn't have a direct 'getContacts' method,
     // this function can be adapted if contact sync is needed later.
     console.log('[WhatsApp] Sincronização de contatos com Baileys pode ser implementada aqui se necessário.');
-    connectionStatus.message = `Conectado! ${aistudio.clients.length} clientes no total.`;
 };
 
 async function connectToWhatsApp() {
@@ -225,36 +221,32 @@ async function connectToWhatsApp() {
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        let qrCodeData = null;
 
         if (qr) {
             console.log('[WhatsApp] QR Code recebido, preparando para o frontend.');
             try {
                 const dataUrl = await qrcode.toDataURL(qr);
-                connectionStatus.isConnected = false;
-                connectionStatus.qrCode = dataUrl.replace('data:image/png;base64,', '');
-                connectionStatus.message = 'Por favor, escaneie o QR Code para conectar.';
+                qrCodeData = dataUrl.replace('data:image/png;base64,', '');
             } catch (err) {
                 console.error('[QRCode] Erro ao gerar a imagem do QR Code:', err);
-                connectionStatus.qrCode = null;
-                connectionStatus.message = 'Erro ao gerar QR Code.';
             }
         }
 
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log(`[WhatsApp] Conexão fechada: ${lastDisconnect.error}, reconectando: ${shouldReconnect}`);
-            connectionStatus.isConnected = false;
-            waEvents.emit('status_change', { isConnected: false });
-
+            
+            waEvents.emit('event', { 
+                type: 'status_change', 
+                data: { isConnected: false, message: 'Conexão perdida. Tentando reconectar...', qrCode: null } 
+            });
 
             if (shouldReconnect) {
-                connectionStatus.message = 'Conexão perdida. Tentando reconectar...';
                 connectToWhatsApp();
             } else {
                 console.log('[WhatsApp] Desconectado permanentemente. Removendo sessão...');
-                connectionStatus.message = 'Sessão encerrada. É necessário escanear o QR Code novamente.';
                 try {
-                    // FIX: Use synchronous directory removal to prevent race conditions.
                     if (fs.existsSync(SESSION_DIR)) {
                         fs.rmSync(SESSION_DIR, { recursive: true, force: true });
                         console.log('[WhatsApp] Diretório da sessão removido com sucesso.');
@@ -262,16 +254,21 @@ async function connectToWhatsApp() {
                 } catch (err) {
                     console.error('[WhatsApp] Erro ao remover pasta da sessão:', err);
                 }
-                // Restart the connection process to generate a new QR code.
+                // A nova conexão irá gerar um novo QR Code
                 connectToWhatsApp(); 
             }
         } else if (connection === 'open') {
             console.log('[WhatsApp] Conexão aberta com sucesso!');
-            connectionStatus.isConnected = true;
-            connectionStatus.qrCode = null;
-            connectionStatus.message = 'Conectado com sucesso!';
-            waEvents.emit('status_change', { isConnected: true });
+            waEvents.emit('event', { 
+                type: 'status_change', 
+                data: { isConnected: true, message: 'Conectado com sucesso!', qrCode: null } 
+            });
             await syncContacts(sock);
+        } else if (qrCodeData) {
+             waEvents.emit('event', {
+                type: 'status_change',
+                data: { isConnected: false, message: 'Por favor, escaneie o QR Code para conectar.', qrCode: qrCodeData }
+            });
         }
     });
     
@@ -287,11 +284,10 @@ async function connectToWhatsApp() {
         
         console.log(`[WhatsApp] Mensagem de ${senderName} (${chatId}): ${text}`);
         
-        // Armazenar a mensagem
         if (!aistudio.wa_chats[chatId]) {
             aistudio.wa_chats[chatId] = { id: chatId, name: senderName, messages: [] };
         }
-        aistudio.wa_chats[chatId].name = senderName; // Update name if it changes
+        aistudio.wa_chats[chatId].name = senderName;
         
         const messageData = {
             id: { fromMe: false, remote: chatId },
@@ -301,28 +297,22 @@ async function connectToWhatsApp() {
         aistudio.wa_chats[chatId].messages.push(messageData);
         saveDb();
 
-        // Emitir evento para o long-polling
-        waEvents.emit('message', { type: 'message', senderName, data: messageData });
+        waEvents.emit('event', { type: 'message', senderName, data: messageData });
     });
 
 }
 
 // --- NOVO: SISTEMA DE EVENTOS E LONG-POLLING ---
 app.get('/api/whatsapp/events', (req, res) => {
-    const onMessage = (event) => {
+    const onEvent = (event) => {
         res.json(event);
     };
 
-    waEvents.once('message', onMessage);
+    waEvents.once('event', onEvent);
     
-    // Remover o listener se o cliente desconectar
     req.on('close', () => {
-        waEvents.removeListener('message', onMessage);
+        waEvents.removeListener('event', onEvent);
     });
-});
-
-app.get('/api/whatsapp/status', (req, res) => {
-    res.json(connectionStatus);
 });
 
 app.get('/api/whatsapp/chats', async (req, res) => {
@@ -358,7 +348,7 @@ app.get('/api/whatsapp/messages/:chatId', (req, res) => {
 
 app.post('/api/whatsapp/send-message', async (req, res) => {
     const { chatId, message } = req.body;
-    if (!sock || !connectionStatus.isConnected) {
+    if (!sock || !sock.user) {
         return res.status(500).json({ error: 'Cliente WhatsApp não está conectado.' });
     }
     if (!chatId || !message) {
@@ -368,7 +358,6 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
     try {
         await sock.sendMessage(chatId, { text: message });
         
-        // Salvar a mensagem enviada
         if (!aistudio.wa_chats[chatId]) {
             aistudio.wa_chats[chatId] = { id: chatId, name: chatId.split('@')[0], messages: [] };
         }
