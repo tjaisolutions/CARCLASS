@@ -56,7 +56,7 @@ const getInitialState = () => ({
     conversationLogs: [],
     catalogFiles: [],
     // NOVO: Armazenamento para o estado do WhatsApp
-    wa_chats: {}, // Armazena chats: { [chatId]: { id, name, messages: [] } }
+    wa_chats: {}, // Armazena chats: { [chatId]: { id, name, messages: [], state: 'GREETING', context: {} } }
 });
 
 
@@ -120,31 +120,8 @@ app.post('/api/data', (req, res) => {
     res.status(200).json({ message: 'Dados salvos com sucesso!' });
 });
 
-// --- GEMINI API & SCHEMA ---
+// --- GEMINI API & SCHEMA (Para futuras expansões) ---
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-const serviceSelectionSchema = {
-    type: Type.OBJECT,
-    properties: {
-        action: {
-            type: Type.STRING,
-            enum: ["REQUEST_MORE_INFO", "BOOK_SERVICE", "NO_ACTION"],
-            description: "A ação a ser tomada. 'BOOK_SERVICE' se o usuário confirmou um ou mais serviços. 'REQUEST_MORE_INFO' se o usuário está perguntando sobre serviços, mas não confirmou qual. 'NO_ACTION' para saudações ou respostas não relacionadas a serviços."
-        },
-        serviceIds: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.STRING
-            },
-            description: "Um array de IDs de serviço que o usuário deseja agendar. O ID deve corresponder exatamente a um dos IDs fornecidos na lista de serviços."
-        },
-        responseText: {
-            type: Type.STRING,
-            description: "Uma resposta amigável para o usuário, informando a próxima etapa ou confirmando o entendimento."
-        }
-    },
-    required: ["action", "responseText"]
-};
 
 
 // --- WHATSAPP BOT (BAILEYS) ---
@@ -153,11 +130,26 @@ const SESSION_DIR = path.join(DATA_DIR, 'whatsapp_session');
 const waEvents = new EventEmitter();
 waEvents.setMaxListeners(20); // Aumenta o limite de listeners para evitar warnings
 
-const syncContacts = async (waSocket) => {
-    // Baileys doesn't have a direct 'getContacts' method,
-    // this function can be adapted if contact sync is needed later.
-    console.log('[WhatsApp] Sincronização de contatos com Baileys pode ser implementada aqui se necessário.');
-};
+const normalizeText = (text = '') => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+// Helper para enviar mensagens, salvar e notificar o frontend
+async function sendBotMessage(chatId, text, senderName) {
+    if (!sock) return;
+    try {
+        await sock.sendMessage(chatId, { text });
+        const botMessageData = {
+            id: { fromMe: true, remote: chatId },
+            body: text,
+            timestamp: Math.floor(Date.now() / 1000),
+            isBot: true,
+        };
+        aistudio.wa_chats[chatId].messages.push(botMessageData);
+        waEvents.emit('event', { type: 'message', senderName, data: botMessageData });
+    } catch (error) {
+        console.error(`[WhatsApp] Falha ao enviar mensagem para ${chatId}:`, error);
+    }
+}
+
 
 async function connectToWhatsApp() {
     console.log('[WhatsApp] Iniciando conexão com Baileys...');
@@ -218,7 +210,6 @@ async function connectToWhatsApp() {
                 type: 'status_change', 
                 data: { isConnected: true, message: 'Conectado com sucesso!', qrCode: null } 
             });
-            await syncContacts(sock);
         } else if (qrCodeData) {
              waEvents.emit('event', {
                 type: 'status_change',
@@ -227,6 +218,7 @@ async function connectToWhatsApp() {
         }
     });
     
+    // --- LÓGICA PRINCIPAL DO CHATBOT ---
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid.endsWith('@g.us')) {
@@ -239,75 +231,108 @@ async function connectToWhatsApp() {
         
         console.log(`[WhatsApp] Mensagem de ${senderName} (${chatId}): ${userInput}`);
         
-        // 1. Salva a mensagem do usuário e notifica o frontend
+        // 1. Garante que o estado da conversa exista
         if (!aistudio.wa_chats[chatId]) {
-            aistudio.wa_chats[chatId] = { id: chatId, name: senderName, messages: [] };
+            aistudio.wa_chats[chatId] = { id: chatId, name: senderName, messages: [], state: 'GREETING', context: {} };
         }
-        aistudio.wa_chats[chatId].name = senderName;
-        
+        const conversation = aistudio.wa_chats[chatId];
+        conversation.name = senderName; // Atualiza o nome caso mude
+
         const userMessageData = {
             id: { fromMe: false, remote: chatId },
             body: userInput,
             timestamp: msg.messageTimestamp,
         };
-        aistudio.wa_chats[chatId].messages.push(userMessageData);
+        conversation.messages.push(userMessageData);
         waEvents.emit('event', { type: 'message', senderName, data: userMessageData });
-        saveDb();
 
-        // 2. Aciona o chatbot para responder
-        try {
-            const serviceList = aistudio.services.map(s => `ID: ${s.id}, Nome: ${s.name}, Descrição: ${s.description}, Preço: R$${s.price}`).join('\n');
-            const prompt = `
-                Você é o chatbot de atendimento da estética automotiva "CAR CLASS".
-                Seu objetivo é identificar qual(is) serviço(s) o cliente deseja agendar a partir da conversa.
+        // 2. Máquina de estados para guiar a conversa
+        switch (conversation.state) {
+            case 'GREETING':
+                await sendBotMessage(chatId, "Olá! Bem-vindo(a) ao assistente virtual da CAR CLASS. Você já é nosso cliente? Por favor, responda com 'Sim' ou 'Não'.", senderName);
+                conversation.state = 'AWAITING_CUSTOMER_TYPE';
+                break;
 
-                Lista de Serviços Disponíveis:
-                ${serviceList}
-
-                Analise a MENSAGEM DO USUÁRIO abaixo e determine a ação a ser tomada.
-                - Se o usuário confirmar explicitamente um ou mais serviços para agendar, defina action como 'BOOK_SERVICE' e inclua os IDs dos serviços em 'serviceIds'.
-                - Se o usuário fizer uma pergunta geral sobre os serviços ou não tiver certeza, defina action como 'REQUEST_MORE_INFO'.
-                - Se a mensagem for uma saudação ou não estiver relacionada a serviços, defina action como 'NO_ACTION'.
-                - A 'responseText' deve ser sempre amigável e útil. Se for agendar, confirme os serviços que entendeu. Se pedir mais informações, ofereça ajuda.
-
-                MENSAGEM DO USUÁRIO: "${userInput}"
-            `;
-
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: [{ parts: [{ text: prompt }] }],
-                config: {
-                    responseMimeType: 'application/json',
-                    responseSchema: serviceSelectionSchema,
+            case 'AWAITING_CUSTOMER_TYPE':
+                const normalizedInput = normalizeText(userInput);
+                if (normalizedInput === 'sim') {
+                    await sendBotMessage(chatId, "Que bom te ver de volta! Para continuar, por favor, digite o seu CPF (apenas números).", senderName);
+                    conversation.state = 'AWAITING_EXISTING_CUSTOMER_CPF';
+                } else if (normalizedInput === 'nao' || normalizedInput === 'não') {
+                    await sendBotMessage(chatId, "Seja bem-vindo(a)! Para começarmos seu cadastro, qual é o seu nome completo?", senderName);
+                    conversation.state = 'AWAITING_NEW_CUSTOMER_NAME';
+                } else {
+                    await sendBotMessage(chatId, "Desculpe, não entendi. Por favor, responda apenas com 'Sim' ou 'Não'.", senderName);
                 }
-            });
+                break;
 
-            const jsonResponse = JSON.parse(response.text);
-            const botResponseText = jsonResponse.responseText;
+            case 'AWAITING_NEW_CUSTOMER_NAME':
+                conversation.context.name = userInput;
+                await sendBotMessage(chatId, `Obrigado, ${userInput}! Agora, por favor, digite seu CPF (apenas números).`, senderName);
+                conversation.state = 'AWAITING_NEW_CUSTOMER_CPF';
+                break;
 
-            if (botResponseText) {
-                // 3. Envia a resposta do bot via WhatsApp
-                await sock.sendMessage(chatId, { text: botResponseText });
-
-                // 4. Salva a mensagem do bot e notifica o frontend
-                const botMessageData = {
-                    id: { fromMe: true, remote: chatId },
-                    body: botResponseText,
-                    timestamp: Math.floor(Date.now() / 1000),
-                    isBot: true, // Flag para identificar a mensagem do bot
+            case 'AWAITING_NEW_CUSTOMER_CPF':
+                conversation.context.cpf = userInput.replace(/\D/g, ''); // Limpa formatação
+                const newClient = {
+                    id: `c${Date.now()}`,
+                    name: conversation.context.name,
+                    cpf: conversation.context.cpf,
+                    whatsapp: chatId.split('@')[0],
+                    cars: [],
                 };
-                aistudio.wa_chats[chatId].messages.push(botMessageData);
-                waEvents.emit('event', { type: 'message', senderName, data: botMessageData });
-                saveDb();
-            }
-        } catch (error) {
-            console.error('[Gemini/WhatsApp] Erro ao processar ou responder mensagem:', error);
-            try {
-                await sock.sendMessage(chatId, { text: 'Desculpe, estou com um problema para processar sua mensagem. Um de nossos atendentes responderá em breve.' });
-            } catch (sendError) {
-                console.error('[WhatsApp] Falha ao enviar mensagem de erro:', sendError);
-            }
+                aistudio.clients.push(newClient);
+                conversation.context.clientId = newClient.id;
+                
+                await sendBotMessage(chatId, `Cadastro realizado com sucesso, ${newClient.name}! Vamos agendar seu serviço.`, senderName);
+                
+                // Transição para o fluxo de agendamento
+                const serviceList = aistudio.services.map(s => `- *${s.name}* (R$ ${s.price.toFixed(2)})`).join('\n');
+                await sendBotMessage(chatId, `Aqui estão nossos serviços:\n\n${serviceList}\n\nQual serviço você gostaria de agendar? Você também pode optar por "Escolher no local".`, senderName);
+                conversation.state = 'AWAITING_SERVICE_SELECTION';
+                break;
+            
+            case 'AWAITING_EXISTING_CUSTOMER_CPF':
+                const clientCpf = userInput.replace(/\D/g, '');
+                const existingClient = aistudio.clients.find(c => c.cpf.replace(/\D/g, '') === clientCpf);
+
+                if (existingClient) {
+                    conversation.context.clientId = existingClient.id;
+                    await sendBotMessage(chatId, `Olá, ${existingClient.name}! É um prazer atendê-lo(a) novamente.`, senderName);
+
+                    const futureAppointments = aistudio.appointments.filter(app => 
+                        app.clientId === existingClient.id && 
+                        new Date(app.date) >= new Date() &&
+                        app.status !== 'Finalizado'
+                    );
+
+                    if (futureAppointments.length > 0) {
+                        const app = futureAppointments[0];
+                        const serviceNames = app.serviceIds.map(id => aistudio.services.find(s => s.id === id)?.name || 'Serviço desconhecido').join(', ');
+                        const date = new Date(app.date + 'T00:00:00').toLocaleDateString('pt-BR');
+                        await sendBotMessage(chatId, `Verifiquei que você tem um agendamento para *${serviceNames}* no dia *${date} às ${app.time}*. Deseja agendar um novo serviço mesmo assim?`, senderName);
+                        conversation.state = 'AWAITING_SERVICE_SELECTION'; // Simplificado para continuar o fluxo
+                    } else {
+                        const serviceList = aistudio.services.map(s => `- *${s.name}* (R$ ${s.price.toFixed(2)})`).join('\n');
+                        await sendBotMessage(chatId, `Não encontrei agendamentos futuros em seu nome. Aqui estão nossos serviços:\n\n${serviceList}\n\nQual serviço você gostaria de agendar?`, senderName);
+                        conversation.state = 'AWAITING_SERVICE_SELECTION';
+                    }
+                } else {
+                    await sendBotMessage(chatId, "Não encontrei seu CPF em nosso sistema. Gostaria de fazer um novo cadastro? Por favor, responda com 'Sim' ou 'Não'.", senderName);
+                    conversation.state = 'AWAITING_CUSTOMER_TYPE';
+                }
+                break;
+            
+            // Outros estados do fluxo de agendamento (AWAITING_SERVICE_SELECTION, etc.) seriam adicionados aqui.
+            // Por enquanto, o fluxo termina aqui para garantir a entrega da lógica de identificação.
+
+            default:
+                await sendBotMessage(chatId, "Olá! Para reiniciar o atendimento, por favor, envie a palavra 'início'.", senderName);
+                conversation.state = 'GREETING'; // Reseta a conversa
+                break;
         }
+
+        saveDb();
     });
 
 }
