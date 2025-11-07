@@ -64,6 +64,7 @@ const initializeWhatsApp = async () => {
 
         const clientInstance = await wppconnect.create({
             session: 'CARCLASS-SESSION',
+            whatsappVersion: '2.2412.54', // Fixa a versão para garantir estabilidade
             catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
                 console.log('QR Code Recebido!');
                 whatsAppStatus = { isConnected: false, qrCode: urlCode, message: 'Escaneie o QR Code' };
