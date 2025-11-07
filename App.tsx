@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -497,7 +498,7 @@ interface WAMessage {
 }
 
 
-const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotification }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; addNotification: (message: string) => void; [key: string]: any; }) => {
+const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; [key: string]: any; }) => {
     const [chats, setChats] = useState<WAChat[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [messages, setMessages] = useState<WAMessage[]>([]);
@@ -513,9 +514,9 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotificat
         }
     }, [status]);
     
-     // Long-polling for real-time events
+    // Long-polling for real-time events from the server
     useEffect(() => {
-        if (status !== 'connected') return;
+        if (!currentUser) return;
 
         let isPolling = true;
 
@@ -523,21 +524,27 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotificat
             while (isPolling) {
                 try {
                     const response = await fetch('/api/whatsapp/events');
-                    if (response.status === 502) { // Timeout
+                    if (response.status === 502) { // Timeout, normal for long-polling
                         continue;
                     }
                     if (response.ok) {
                         const event = await response.json();
-                        if (event.type === 'message') {
+
+                        if (event.type === 'status_change') {
+                            const { isConnected, message, qrCode } = event.data;
+                            setStatusMessage(message);
+                            setQrCode(qrCode || null);
+                            const newStatus = isConnected ? 'connected' : (qrCode ? 'loading' : 'disconnected');
+                            setStatus(newStatus);
+
+                        } else if (event.type === 'message') {
                             const newMessage: WAMessage = event.data;
                             const chatId = newMessage.id.remote;
                             
-                            // Update messages if it's the active chat
                             if (chatId === activeChatId) {
                                 setMessages(prev => [...prev, newMessage]);
                             }
 
-                            // Update or create chat in the list
                             setChats(prevChats => {
                                 const existingChatIndex = prevChats.findIndex(c => c.id === chatId);
                                 const updatedChat: WAChat = {
@@ -548,21 +555,19 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotificat
                                         timestamp: newMessage.timestamp,
                                     }
                                 };
+                                let newChats = [...prevChats];
                                 if (existingChatIndex > -1) {
-                                    const newChats = [...prevChats];
-                                    newChats.splice(existingChatIndex, 1); // Remove from old position
-                                    return [updatedChat, ...newChats]; // Add to top
-                                } else {
-                                    return [updatedChat, ...prevChats]; // Add new chat to top
+                                    newChats.splice(existingChatIndex, 1);
                                 }
+                                return [updatedChat, ...newChats];
                             });
                         }
                     } else {
-                         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying on error
+                         await new Promise(resolve => setTimeout(resolve, 5000));
                     }
                 } catch (error) {
                     console.error("Long-polling error:", error);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                 }
             }
         };
@@ -572,8 +577,26 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotificat
         return () => {
             isPolling = false;
         };
-    }, [status, activeChatId]);
+    }, [currentUser, activeChatId, setStatus, setQrCode, setStatusMessage]);
 
+    // Fetch initial chats when connection is established
+    useEffect(() => {
+        const fetchInitialChats = async () => {
+            if (status === 'connected') {
+                 try {
+                     const response = await fetch('/api/whatsapp/chats');
+                     if (response.ok) {
+                         const data = await response.json();
+                         setChats(data);
+                         addNotification("Conversas do WhatsApp sincronizadas.");
+                     }
+                 } catch (error) {
+                     console.error("Failed to fetch initial chats:", error);
+                 }
+            }
+        };
+        fetchInitialChats();
+    }, [status, addNotification]);
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -618,24 +641,6 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotificat
         }
     };
     
-    // Fetch initial chats and messages for active chat
-    useEffect(() => {
-        const fetchInitialData = async () => {
-             if (status === 'connected') {
-                 try {
-                     const response = await fetch('/api/whatsapp/chats');
-                     if (response.ok) {
-                         const data = await response.json();
-                         setChats(data);
-                     }
-                 } catch (error) {
-                     console.error("Failed to fetch initial chats:", error);
-                 }
-            }
-        };
-        fetchInitialData();
-    }, [status]);
-
     useEffect(() => {
          const fetchMessages = async () => {
              if (activeChatId && status === 'connected') {
@@ -1859,8 +1864,6 @@ const App = () => {
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState('Inicializando...');
 
-    const isPolling = useRef(false);
-
     const addNotification = useCallback((message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
          setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
@@ -1893,42 +1896,6 @@ const App = () => {
     }, [loadData]);
 
 
-    useEffect(() => {
-        const checkStatus = async () => {
-            if (!currentUser || isPolling.current) return;
-            isPolling.current = true;
-            try {
-                const response = await fetch('/api/whatsapp/status');
-                const data = await response.json();
-                
-                setQrCode(data.qrCode || null);
-                setStatusMessage(data.message || '');
-
-                if (data.isConnected && whatsAppStatus !== 'connected') {
-                    setWhatsAppStatus('connected');
-                    addNotification("WhatsApp conectado. Sincronizando contatos...");
-                } else if (!data.isConnected && whatsAppStatus !== 'disconnected' && whatsAppStatus !== 'loading') {
-                     setWhatsAppStatus(data.qrCode ? 'loading' : 'disconnected');
-                } else if (!data.isConnected) {
-                    setWhatsAppStatus(data.qrCode ? 'loading' : 'disconnected');
-                }
-            } catch (error) {
-                console.error("Status check failed:", error);
-                setWhatsAppStatus('disconnected');
-                setQrCode(null);
-                setStatusMessage('Erro de conexão com o servidor.');
-            } finally {
-                isPolling.current = false;
-            }
-        };
-
-        const intervalId = setInterval(checkStatus, 3000); // Poll every 3 seconds
-        checkStatus(); // Initial check
-
-        return () => clearInterval(intervalId);
-
-    }, [currentUser, addNotification, whatsAppStatus]);
-    
     const handleClientSave = useCallback((clientData: Omit<Client, 'id'> & { id?: string }) => {
          if (clientData.id) {
              setClients(prev => prev.map(c => c.id === clientData.id ? { ...c, ...clientData } as Client : c));
@@ -2054,7 +2021,7 @@ const App = () => {
             case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
             case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
             case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} addNotification={addNotification} />;
+            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
             case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
