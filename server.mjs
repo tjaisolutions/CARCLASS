@@ -85,6 +85,7 @@ const initializeWhatsApp = () => {
         sessionDataPath: DATA_DIR, // Salvar os dados da sessão no disco persistente da Render
         headless: 'new',
         logQR: false,
+        autoClose: 0, // Desativa o timeout do QR Code
     })
     .then((c) => {
         client = c;
