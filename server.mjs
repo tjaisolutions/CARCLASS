@@ -63,7 +63,9 @@ loadDb();
 
 // --- MIDDLEWARE ---
 app.use(express.json());
-app.use(express.static(path.join(__dirname))); // Servir arquivos estáticos da raiz
+// Servir arquivos estáticos da pasta 'dist' (build de produção)
+app.use(express.static(path.join(__dirname, 'dist')));
+
 
 // --- API ROUTES ---
 app.get('/api/data', (req, res) => {
@@ -164,10 +166,9 @@ async function startWhatsAppBot() {
   try {
     whatsappClient = await wppconnect.create({
       session: WHATSAPP_SESSION_ID,
-      whatsappVersion: '2.2413.52', // Estabilizando a versão para evitar falhas com a 'latest'
       catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
         console.log('[WhatsApp] Novo QR Code gerado. Tentativa:', attempts);
-        connectionStatus.qrCode = base64Qr;
+        connectionStatus.qrCode = base64Qr; // Passa a imagem base64 diretamente para o front-end
         connectionStatus.message = 'Aguardando leitura do QR Code.';
       },
       statusFind: (statusSession, session) => {
@@ -264,8 +265,9 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
 
 // --- ROTA CATCH-ALL ---
 // Deve ser a última rota para não sobrescrever as rotas da API
+// Serve o index.html da pasta 'dist' para o carregamento inicial da SPA
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
