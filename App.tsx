@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -1831,7 +1832,7 @@ const App = () => {
 
         return () => clearInterval(intervalId);
 
-    }, [currentUser, whatsAppStatus, addNotification]);
+    }, [currentUser, addNotification, whatsAppStatus]);
     
     const handleClientSave = useCallback((clientData: Omit<Client, 'id'> & { id?: string }) => {
          if (clientData.id) {
