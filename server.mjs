@@ -434,6 +434,21 @@ app.post('/api/whatsapp/send-message', async (req, res) => {
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isMainModule) {
+    // PRODUCTION: Serve frontend files from the 'dist' folder
+    const buildPath = path.join(__dirname, 'dist');
+    if (fs.existsSync(buildPath)) {
+        console.log(`[Server] Servindo arquivos estáticos de: ${buildPath}`);
+        app.use(express.static(buildPath));
+        
+        // SPA Fallback: For any request that doesn't match a static file or an API route,
+        // send the index.html file. This is crucial for client-side routing.
+        app.get('*', (req, res) => {
+            res.sendFile(path.join(buildPath, 'index.html'));
+        });
+    } else {
+        console.warn(`[Server] Diretório de build 'dist' não encontrado. Execute 'npm run build' para produção.`);
+    }
+
     app.listen(port, () => {
       console.log(`Servidor rodando na porta ${port}`);
       console.log(`Diretório de dados: ${DATA_DIR}`);
