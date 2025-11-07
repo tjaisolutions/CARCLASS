@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -479,21 +480,32 @@ const WhatsAppConnectionStatus = ({ status, message }: { status: 'connected' | '
     );
 };
 
-// Interface for chat objects fetched from the server
+// Interface for chat objects, now managed locally
 interface WAChat {
-    id: { _serialized: string; };
+    id: string;
     name: string;
-    lastMessage: { body: string; };
+    lastMessage: {
+        body: string;
+        timestamp: number;
+    };
+}
+// Interface for message objects
+interface WAMessage {
+    id: { fromMe: boolean; remote: string; };
+    body: string;
     timestamp: number;
 }
 
+
 const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotification }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; addNotification: (message: string) => void; [key: string]: any; }) => {
     const [chats, setChats] = useState<WAChat[]>([]);
-    const [activeChat, setActiveChat] = useState<WAChat | null>(null);
-    const [messages, setMessages] = useState<any[]>([]);
+    const [activeChatId, setActiveChatId] = useState<string | null>(null);
+    const [messages, setMessages] = useState<WAMessage[]>([]);
     const [userInput, setUserInput] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const wasConnected = useRef(false);
+    
+    const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
 
     useEffect(() => {
         if (status === 'connected') {
@@ -501,70 +513,152 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotificat
         }
     }, [status]);
     
-    const fetchChats = useCallback(async () => {
-        try {
-            const response = await fetch('/api/whatsapp/chats');
-            if (response.ok) {
-                const data = await response.json();
-                setChats(data);
-            }
-        } catch (error) {
-            console.error("Failed to fetch chats:", error);
-        }
-    }, []);
-
+     // Long-polling for real-time events
     useEffect(() => {
-        if (status === 'connected') {
-            fetchChats();
-            const interval = setInterval(fetchChats, 10000); // Refresh chats every 10 seconds
-            return () => clearInterval(interval);
-        }
-    }, [status, fetchChats]);
+        if (status !== 'connected') return;
+
+        let isPolling = true;
+
+        const pollEvents = async () => {
+            while (isPolling) {
+                try {
+                    const response = await fetch('/api/whatsapp/events');
+                    if (response.status === 502) { // Timeout
+                        continue;
+                    }
+                    if (response.ok) {
+                        const event = await response.json();
+                        if (event.type === 'message') {
+                            const newMessage: WAMessage = event.data;
+                            const chatId = newMessage.id.remote;
+                            
+                            // Update messages if it's the active chat
+                            if (chatId === activeChatId) {
+                                setMessages(prev => [...prev, newMessage]);
+                            }
+
+                            // Update or create chat in the list
+                            setChats(prevChats => {
+                                const existingChatIndex = prevChats.findIndex(c => c.id === chatId);
+                                const updatedChat: WAChat = {
+                                    id: chatId,
+                                    name: event.senderName || chatId.split('@')[0],
+                                    lastMessage: {
+                                        body: newMessage.body,
+                                        timestamp: newMessage.timestamp,
+                                    }
+                                };
+                                if (existingChatIndex > -1) {
+                                    const newChats = [...prevChats];
+                                    newChats.splice(existingChatIndex, 1); // Remove from old position
+                                    return [updatedChat, ...newChats]; // Add to top
+                                } else {
+                                    return [updatedChat, ...prevChats]; // Add new chat to top
+                                }
+                            });
+                        }
+                    } else {
+                         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying on error
+                    }
+                } catch (error) {
+                    console.error("Long-polling error:", error);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+        };
+
+        pollEvents();
+
+        return () => {
+            isPolling = false;
+        };
+    }, [status, activeChatId]);
+
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!userInput.trim() || !activeChat) return;
+        if (!userInput.trim() || !activeChatId) return;
 
         const messageContent = userInput;
         setUserInput('');
         
-        // Optimistically update UI
-        setMessages(prev => [...prev, { fromMe: true, body: messageContent, timestamp: Date.now()/1000 }]);
+        const optimisticMessage: WAMessage = {
+            id: { fromMe: true, remote: activeChatId },
+            body: messageContent,
+            timestamp: Date.now() / 1000
+        };
+        setMessages(prev => [...prev, optimisticMessage]);
 
         try {
             const response = await fetch('/api/whatsapp/send-message', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chatId: activeChat.id._serialized, message: messageContent }),
+                body: JSON.stringify({ chatId: activeChatId, message: messageContent }),
             });
             if (!response.ok) {
                 throw new Error('Failed to send message');
             }
+             // Update chat list on send
+            setChats(prevChats => {
+                const chatIndex = prevChats.findIndex(c => c.id === activeChatId);
+                if (chatIndex === -1) return prevChats;
+
+                const chat = { ...prevChats[chatIndex] };
+                chat.lastMessage = { body: messageContent, timestamp: Date.now() / 1000 };
+                
+                const newChats = [...prevChats];
+                newChats.splice(chatIndex, 1);
+                return [chat, ...newChats];
+            });
         } catch (error) {
             console.error("Error sending message:", error);
             addNotification("Erro ao enviar mensagem.");
-            // Revert optimistic update if needed, or show an error icon
+            // Revert optimistic update
+            setMessages(prev => prev.filter(m => m !== optimisticMessage));
         }
     };
     
+    // Fetch initial chats and messages for active chat
     useEffect(() => {
-        const fetchMessages = async () => {
-            if (activeChat) {
-                // In a real app, you would fetch messages for the active chat
-                // For this example, we'll use mock messages
-                setMessages([
-                    { fromMe: false, body: "Olá! Gostaria de um orçamento.", timestamp: 1672531200 },
-                    { fromMe: true, body: "Olá! Claro, em que posso ajudar?", timestamp: 1672531260 },
-                ]);
-            } else {
-                setMessages([]);
+        const fetchInitialData = async () => {
+             if (status === 'connected') {
+                 try {
+                     const response = await fetch('/api/whatsapp/chats');
+                     if (response.ok) {
+                         const data = await response.json();
+                         setChats(data);
+                     }
+                 } catch (error) {
+                     console.error("Failed to fetch initial chats:", error);
+                 }
             }
         };
-        fetchMessages();
-    }, [activeChat]);
+        fetchInitialData();
+    }, [status]);
+
+    useEffect(() => {
+         const fetchMessages = async () => {
+             if (activeChatId && status === 'connected') {
+                 try {
+                     const response = await fetch(`/api/whatsapp/messages/${activeChatId}`);
+                     if (response.ok) {
+                         const data = await response.json();
+                         setMessages(data);
+                     }
+                 } catch (error) {
+                     console.error("Failed to fetch messages:", error);
+                     setMessages([]);
+                 }
+             } else {
+                 setMessages([]);
+             }
+         };
+         fetchMessages();
+     }, [activeChatId, status]);
 
     const filteredChats = useMemo(() => {
-        return chats.filter(chat => normalizeText(chat.name).includes(normalizeText(searchTerm)));
+        return chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp)
+                    .filter(chat => normalizeText(chat.name).includes(normalizeText(searchTerm)));
     }, [chats, searchTerm]);
 
     if (status === 'loading' || (status === 'disconnected' && !wasConnected.current)) {
@@ -611,12 +705,12 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotificat
                     </div>
                     <div className="overflow-y-auto flex-grow">
                         {filteredChats.map(chat => (
-                             <div key={chat.id._serialized} onClick={() => setActiveChat(chat)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChat?.id._serialized === chat.id._serialized ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
+                             <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
                                 <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
                                 <div className="flex-grow overflow-hidden">
                                     <div className="flex justify-between items-baseline">
-                                        <p className="font-bold text-white truncate">{chat.name || chat.id._serialized.split('@')[0]}</p>
-                                        <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                                        <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
+                                        <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                                     </div>
                                     <p className="text-sm text-gray-400 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
                                 </div>
@@ -634,7 +728,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, addNotificat
                             </div>
                             <div className="p-4 space-y-4 flex-grow overflow-y-auto">
                                 {messages.map((msg, index) => (
-                                    <ChatMessage key={index} sender={msg.fromMe ? 'agent' : 'user'} content={<p>{msg.body}</p>} operatorName={currentUser.username}/>
+                                    <ChatMessage key={index} sender={msg.id.fromMe ? 'agent' : 'user'} content={<p>{msg.body}</p>} operatorName={currentUser.username}/>
                                 ))}
                             </div>
                             <div className="p-4 border-t border-white/10">
@@ -1813,8 +1907,9 @@ const App = () => {
                 if (data.isConnected && whatsAppStatus !== 'connected') {
                     setWhatsAppStatus('connected');
                     addNotification("WhatsApp conectado. Sincronizando contatos...");
+                } else if (!data.isConnected && whatsAppStatus !== 'disconnected' && whatsAppStatus !== 'loading') {
+                     setWhatsAppStatus(data.qrCode ? 'loading' : 'disconnected');
                 } else if (!data.isConnected) {
-                    // Only set to 'loading' if there's a QR code, otherwise it's 'disconnected'
                     setWhatsAppStatus(data.qrCode ? 'loading' : 'disconnected');
                 }
             } catch (error) {
