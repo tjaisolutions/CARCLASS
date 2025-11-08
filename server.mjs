@@ -22,6 +22,7 @@ if (!fs.existsSync(DATA_DIR)) {
 
 
 export const app = express();
+const apiRouter = express.Router();
 const port = process.env.PORT || 3001;
 
 // --- GERENCIAMENTO DE ESTADO SIMPLIFICADO ---
@@ -99,14 +100,15 @@ loadDb();
 
 // --- MIDDLEWARE ---
 app.use(express.json());
+app.use('/api', apiRouter);
 
 
 // --- API ROUTES ---
-app.get('/api/data', (req, res) => {
+apiRouter.get('/data', (req, res) => {
     res.json(aistudio);
 });
 
-app.post('/api/data', (req, res) => {
+apiRouter.post('/data', (req, res) => {
     for (const key in req.body) {
         if (Object.prototype.hasOwnProperty.call(aistudio, key)) {
             aistudio[key] = req.body[key];
@@ -177,21 +179,36 @@ const findAppointmentsByClientId = (clientId) => {
 const getAvailableDateTimeSlots = () => {
     const { daysOpen, availableTimes } = aistudio.operatingHours;
     const slots = [];
-    let currentDate = new Date();
-    
-    for(let i = 0; i < 14 && slots.length < 7; i++) { // Check next 14 days, find up to 7 with slots
-        currentDate.setDate(new Date().getDate() + i);
-        if (daysOpen.includes(currentDate.getDay())) {
-            const dateStr = currentDate.toISOString().split('T')[0];
-            const bookedTimes = aistudio.appointments.filter(app => app.date === dateStr).map(app => app.time);
+    const uniqueDaysFound = new Set();
+
+    // Look up to 30 days in the future to find up to 7 unique available days
+    for (let i = 0; i < 30 && uniqueDaysFound.size < 7; i++) {
+        let checkDate = new Date();
+        checkDate.setHours(0, 0, 0, 0);
+        checkDate.setDate(checkDate.getDate() + i);
+
+        if (daysOpen.includes(checkDate.getDay())) {
+            const dateStr = checkDate.toISOString().split('T')[0];
+            const dayOfWeek = checkDate.toLocaleDateString('pt-BR', { weekday: 'long' });
+
+            // After the first week, we can be stricter about not adding duplicate weekdays
+            // This ensures variety in the choices presented.
+            if (uniqueDaysFound.has(dayOfWeek) && i > 6) continue;
+
+            const bookedTimes = aistudio.appointments
+                .filter(app => app.date === dateStr)
+                .map(app => app.time);
+            
             const now = new Date();
             
             const freeTimes = availableTimes.filter(time => {
                 if (bookedTimes.includes(time)) return false;
+                
+                // Check if the slot is in the past for today's date
                 if (dateStr === now.toISOString().split('T')[0]) {
                     const [hour, minute] = time.split(':');
-                    const slotTime = new Date();
-                    slotTime.setHours(parseInt(hour), parseInt(minute), 0, 0);
+                    const slotTime = new Date(checkDate);
+                    slotTime.setHours(parseInt(hour, 10), parseInt(minute, 10), 0, 0);
                     return slotTime > now;
                 }
                 return true;
@@ -202,6 +219,7 @@ const getAvailableDateTimeSlots = () => {
                     date: dateStr,
                     times: freeTimes
                 });
+                uniqueDaysFound.add(dayOfWeek);
             }
         }
     }
@@ -222,7 +240,9 @@ const generateDateTimeMessage = (slots) => {
 };
 
 const cancelAppointment = (appointmentId) => {
+    const initialLength = aistudio.appointments.length;
     aistudio.appointments = aistudio.appointments.filter(app => app.id !== appointmentId);
+    return initialLength > aistudio.appointments.length;
 };
 
 
@@ -349,6 +369,7 @@ async function connectToWhatsApp() {
                     cpf: userInput.replace(/\D/g, ''), whatsapp: chatId.split('@')[0], cars: []
                 };
                 aistudio.clients.push(newClient);
+                saveDb(); // Save new client immediately
                 conversation.context.client = newClient;
                 await sendBotMessage(chatId, "Cadastro concluído com sucesso! Deseja ver nossa lista de serviços ou prefere escolher o serviço no local?", senderName);
                 conversation.state = 'AWAITING_SERVICE_CHOICE';
@@ -366,8 +387,11 @@ async function connectToWhatsApp() {
                     conversation.context.availableSlots = slots;
                     conversation.state = 'AWAITING_DATETIME_SELECTION';
                 } else if (choice.includes('cancelar') || choice.includes('3')) {
-                    cancelAppointment(conversation.context.existingAppointment.id);
-                    await sendBotMessage(chatId, "Seu agendamento foi cancelado com sucesso. O horário agora está disponível novamente.", senderName);
+                    if(cancelAppointment(conversation.context.existingAppointment.id)) {
+                        await sendBotMessage(chatId, "Seu agendamento foi cancelado com sucesso. O horário agora está disponível novamente.", senderName);
+                    } else {
+                         await sendBotMessage(chatId, "Não foi possível cancelar o agendamento.", senderName);
+                    }
                     conversation.state = 'GREETING'; conversation.context = {};
                 } else {
                     await sendBotMessage(chatId, "Opção inválida. Por favor, escolha 1, 2 ou 3.", senderName);
@@ -375,12 +399,14 @@ async function connectToWhatsApp() {
                 break;
 
             case 'AWAITING_SERVICE_CHOICE':
-                if (normalizeText(userInput).includes('lista')) {
-                    // Aqui seria o envio dos PDFs, por enquanto, envia a lista de texto
+                const serviceChoicePrompt = `O usuário disse: "${userInput}". A intenção é "ver a lista" de serviços ou "escolher no local"? Responda em JSON com {"intent": "lista"} ou {"intent": "local"}.`;
+                const choiceResult = await runGemini(serviceChoicePrompt);
+
+                if (choiceResult.intent === 'lista') {
                     const serviceList = aistudio.services.map(s => `- *${s.name}*`).join('\n') || "Nenhum serviço cadastrado.";
                     await sendBotMessage(chatId, `Aqui estão nossos serviços:\n\n${serviceList}\n\nQual serviço você gostaria de agendar?`, senderName);
                     conversation.state = 'AWAITING_SERVICE_SELECTION_FROM_LIST';
-                } else if (normalizeText(userInput).includes('local')) {
+                } else if (choiceResult.intent === 'local') {
                     conversation.context.service = { id: 'local', name: 'A definir no local' };
                     const slots = getAvailableDateTimeSlots();
                     await sendBotMessage(chatId, generateDateTimeMessage(slots), senderName);
@@ -410,7 +436,6 @@ async function connectToWhatsApp() {
                 const dateTimePrompt = `O usuário disse: "${userInput}". Extraia a data e a hora. Os slots disponíveis são: ${JSON.stringify(conversation.context.availableSlots)}. Responda em JSON com {"date": "YYYY-MM-DD", "time": "HH:MM"} ou {"error": "not found"}. Hoje é ${new Date().toISOString().split('T')[0]}.`;
                 const dtResult = await runGemini(dateTimePrompt);
                 
-                // Validação
                 const isValidSlot = dtResult.date && dtResult.time && conversation.context.availableSlots.some(s => s.date === dtResult.date && s.times.includes(dtResult.time));
 
                 if (isValidSlot) {
@@ -439,6 +464,7 @@ async function connectToWhatsApp() {
                  const carIndex = parseInt(userInput, 10) - 1;
                  if (carIndex >= 0 && carIndex < conversation.context.client.cars.length) {
                      conversation.context.car = conversation.context.client.cars[carIndex];
+                     conversation.context.isNewVehicle = false;
                      await sendBotMessage(chatId, `Ok, selecionado: ${conversation.context.car.model}. Este veículo possui alguma proteção especial (ex: PPF)? 'Sim' ou 'Não'.`, senderName);
                      conversation.state = 'AWAITING_PROTECTION_INFO';
                  } else if (carIndex === conversation.context.client.cars.length) {
@@ -452,6 +478,7 @@ async function connectToWhatsApp() {
 
             case 'CONFIRM_EXISTING_VEHICLE':
                 if (normalizeText(userInput) === 'sim') {
+                    conversation.context.isNewVehicle = false;
                     await sendBotMessage(chatId, "Ok. O veículo possui alguma proteção especial (ex: PPF)? 'Sim' ou 'Não'.", senderName);
                     conversation.state = 'AWAITING_PROTECTION_INFO';
                 } else {
@@ -467,12 +494,11 @@ async function connectToWhatsApp() {
                     await sendBotMessage(chatId, "Por favor, descreva qual é a proteção.", senderName);
                     conversation.state = 'AWAITING_PROTECTION_DETAILS';
                 } else {
-                    conversation.context.protections = 'Nenhuma';
-                    if (conversation.context.isNewVehicle) {
+                    conversation.context.protections = [];
+                    if (conversation.context.isNewVehicle || !conversation.context.car) {
                         await sendBotMessage(chatId, "Ok. Qual o modelo do veículo?", senderName);
                         conversation.state = 'AWAITING_NEW_VEHICLE_MODEL';
                     } else {
-                        // Resumo
                         const summary = `*Resumo do Agendamento:*\n- Cliente: ${conversation.context.client.name}\n- Serviço: ${conversation.context.service.name}\n- Data: ${new Date(conversation.context.date + 'T00:00:00').toLocaleDateString('pt-BR')}\n- Hora: ${conversation.context.time}\n- Veículo: ${conversation.context.car.model} (${conversation.context.car.plate})\n- Proteções: Nenhuma\n\nPodemos *confirmar* ou deseja *alterar* algo?`;
                         await sendBotMessage(chatId, summary, senderName);
                         conversation.state = 'AWAITING_FINAL_CONFIRMATION';
@@ -481,16 +507,21 @@ async function connectToWhatsApp() {
                 break;
             
             case 'AWAITING_PROTECTION_DETAILS':
-                conversation.context.protections = userInput;
+                conversation.context.protections = userInput.split(',').map(p => p.trim()).filter(Boolean);
                 if (conversation.context.isNewVehicle) {
                     await sendBotMessage(chatId, "Anotado. Qual o modelo do veículo?", senderName);
                     conversation.state = 'AWAITING_NEW_VEHICLE_MODEL';
                 } else {
                     // Atualiza o carro existente e vai para o resumo
-                    const carIndex = conversation.context.client.cars.findIndex(c => c.id === conversation.context.car.id);
-                    if(carIndex > -1) conversation.context.client.cars[carIndex].protections = [userInput];
-
-                    const summary = `*Resumo do Agendamento:*\n- Cliente: ${conversation.context.client.name}\n- Serviço: ${conversation.context.service.name}\n- Data: ${new Date(conversation.context.date + 'T00:00:00').toLocaleDateString('pt-BR')}\n- Hora: ${conversation.context.time}\n- Veículo: ${conversation.context.car.model} (${conversation.context.car.plate})\n- Proteções: ${userInput}\n\nPodemos *confirmar* ou deseja *alterar* algo?`;
+                    const clientIndex = aistudio.clients.findIndex(c => c.id === conversation.context.client.id);
+                    if (clientIndex !== -1) {
+                        const carIndex = aistudio.clients[clientIndex].cars.findIndex(c => c.id === conversation.context.car.id);
+                        if (carIndex !== -1) {
+                            aistudio.clients[clientIndex].cars[carIndex].protections = conversation.context.protections;
+                            saveDb();
+                        }
+                    }
+                    const summary = `*Resumo do Agendamento:*\n- Cliente: ${conversation.context.client.name}\n- Serviço: ${conversation.context.service.name}\n- Data: ${new Date(conversation.context.date + 'T00:00:00').toLocaleDateString('pt-BR')}\n- Hora: ${conversation.context.time}\n- Veículo: ${conversation.context.car.model} (${conversation.context.car.plate})\n- Proteções: ${conversation.context.protections.join(', ')}\n\nPodemos *confirmar* ou deseja *alterar* algo?`;
                     await sendBotMessage(chatId, summary, senderName);
                     conversation.state = 'AWAITING_FINAL_CONFIRMATION';
                 }
@@ -507,18 +538,24 @@ async function connectToWhatsApp() {
                     id: `car${Date.now()}`,
                     model: conversation.context.newCarModel,
                     plate: userInput,
-                    protections: conversation.context.protections === 'Nenhuma' ? [] : [conversation.context.protections]
+                    protections: conversation.context.protections || []
                 };
-                conversation.context.client.cars.push(newCar);
+                
+                const clientIndex = aistudio.clients.findIndex(c => c.id === conversation.context.client.id);
+                if (clientIndex !== -1) {
+                    aistudio.clients[clientIndex].cars.push(newCar);
+                    saveDb(); // Save client with new car
+                }
                 conversation.context.car = newCar;
                 
-                const summary = `*Resumo do Agendamento:*\n- Cliente: ${conversation.context.client.name}\n- Serviço: ${conversation.context.service.name}\n- Data: ${new Date(conversation.context.date + 'T00:00:00').toLocaleDateString('pt-BR')}\n- Hora: ${conversation.context.time}\n- Veículo: ${newCar.model} (${newCar.plate})\n- Proteções: ${conversation.context.protections}\n\nPodemos *confirmar* ou deseja *alterar* algo?`;
+                const summary = `*Resumo do Agendamento:*\n- Cliente: ${conversation.context.client.name}\n- Serviço: ${conversation.context.service.name}\n- Data: ${new Date(conversation.context.date + 'T00:00:00').toLocaleDateString('pt-BR')}\n- Hora: ${conversation.context.time}\n- Veículo: ${newCar.model} (${newCar.plate})\n- Proteções: ${newCar.protections.join(', ') || 'Nenhuma'}\n\nPodemos *confirmar* ou deseja *alterar* algo?`;
                 await sendBotMessage(chatId, summary, senderName);
                 conversation.state = 'AWAITING_FINAL_CONFIRMATION';
                 break;
                 
             case 'AWAITING_FINAL_CONFIRMATION':
-                if (normalizeText(userInput).includes('confirmar')) {
+                const confirmationInput = normalizeText(userInput);
+                if (confirmationInput.includes('confirmar') || confirmationInput === 'sim') {
                      if(conversation.context.isAltering) {
                         cancelAppointment(conversation.context.existingAppointment.id);
                      }
@@ -534,8 +571,8 @@ async function connectToWhatsApp() {
                      aistudio.appointments.push(newAppt);
                      await sendBotMessage(chatId, "Excelente! Seu agendamento foi confirmado com sucesso. Aguardamos você na CAR CLASS!", senderName);
                      conversation.state = 'GREETING'; conversation.context = {};
-                } else if (normalizeText(userInput).includes('alterar')) {
-                    await sendBotMessage(chatId, "O que você gostaria de alterar? (Serviço, Data/Hora, Veículo)", senderName);
+                } else if (confirmationInput.includes('alterar')) {
+                    await sendBotMessage(chatId, "O que você gostaria de alterar? (Serviço, Data/Hora, Veículo, Proteção)", senderName);
                     conversation.state = 'AWAITING_CHANGE_REQUEST';
                 } else {
                     await sendBotMessage(chatId, "Por favor, responda com 'confirmar' ou 'alterar'.", senderName);
@@ -557,8 +594,12 @@ async function connectToWhatsApp() {
                      const carList = clientCars.map((car, i) => `${i + 1}. ${car.model} (${car.plate})`).join('\n');
                      await sendBotMessage(chatId, `Qual veículo será usado?\n${carList}\n${clientCars.length + 1}. Adicionar novo`, senderName);
                      conversation.state = 'AWAITING_VEHICLE_SELECTION';
+                } else if (changeInput.includes('proteção') || changeInput.includes('protecao')) {
+                     await sendBotMessage(chatId, "Ok. O veículo possui alguma proteção especial (ex: PPF, vitrificação)? Responda 'Sim' ou 'Não'.", senderName);
+                     conversation.context.isNewVehicle = false; // We are editing protections for an existing car
+                     conversation.state = 'AWAITING_PROTECTION_INFO';
                 } else {
-                    await sendBotMessage(chatId, "Não entendi o que deseja alterar. Por favor, diga se é 'serviço', 'data/hora' ou 'veículo'.", senderName);
+                    await sendBotMessage(chatId, "Não entendi o que deseja alterar. Por favor, diga se é 'serviço', 'data/hora', 'veículo' ou 'proteção'.", senderName);
                 }
                 break;
 
@@ -571,13 +612,13 @@ async function connectToWhatsApp() {
 }
 
 // --- SISTEMA DE EVENTOS E LONG-POLLING ---
-app.get('/api/whatsapp/events', (req, res) => {
+apiRouter.get('/whatsapp/events', (req, res) => {
     const onEvent = (event) => res.json(event);
     waEvents.once('event', onEvent);
     req.on('close', () => waEvents.removeListener('event', onEvent));
 });
 
-app.get('/api/whatsapp/chats', async (req, res) => {
+apiRouter.get('/whatsapp/chats', async (req, res) => {
      try {
         const chatList = Object.values(aistudio.wa_chats).map(chat => {
             const lastMessage = chat.messages[chat.messages.length - 1] || { body: '', timestamp: 0 };
@@ -589,12 +630,12 @@ app.get('/api/whatsapp/chats', async (req, res) => {
     }
 });
 
-app.get('/api/whatsapp/messages/:chatId', (req, res) => {
+apiRouter.get('/whatsapp/messages/:chatId', (req, res) => {
     const chat = aistudio.wa_chats[req.params.chatId];
     res.status(chat ? 200 : 404).json(chat ? chat.messages : []);
 });
 
-app.post('/api/whatsapp/send-message', async (req, res) => {
+apiRouter.post('/whatsapp/send-message', async (req, res) => {
     const { chatId, message } = req.body;
     if (!sock || !sock.user) return res.status(500).json({ error: 'WhatsApp não conectado.' });
     if (!chatId || !message) return res.status(400).json({ error: 'chatId e message são obrigatórios.' });
