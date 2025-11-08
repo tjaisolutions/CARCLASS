@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -103,6 +104,71 @@ const AppointmentCard: React.FC<AppointmentCardProps> = ({ appointment, client, 
 };
 
 type AgendaSortBy = 'default' | 'recent' | 'time_asc' | 'time_desc';
+
+// --- NEW COMPONENT: CustomSelect ---
+type SelectOption = { value: string; label: string };
+type CustomSelectProps = {
+    options: SelectOption[];
+    value: string;
+    onChange: (value: string) => void;
+};
+
+const CustomSelect: React.FC<CustomSelectProps> = ({ options, value, onChange }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const selectRef = useRef<HTMLDivElement>(null);
+    const selectedOption = options.find(opt => opt.value === value);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleSelect = (optionValue: string) => {
+        onChange(optionValue);
+        setIsOpen(false);
+    };
+
+    return (
+        <div className="relative" ref={selectRef}>
+            <button
+                type="button"
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 flex justify-between items-center text-left focus:ring-2 focus:ring-brand-red focus:border-brand-red"
+                aria-haspopup="listbox"
+                aria-expanded={isOpen}
+            >
+                <span>{selectedOption?.label || 'Selecione...'}</span>
+                <ChevronDownIcon className={`h-5 w-5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <ul className="absolute z-10 mt-1 w-full bg-brand-gray-light border border-brand-gray-light rounded-md shadow-lg max-h-60 overflow-auto focus:outline-none" role="listbox">
+                    {options.map(option => (
+                        <li
+                            key={option.value}
+                            onClick={() => handleSelect(option.value)}
+                            className={`cursor-pointer select-none relative py-2 pl-3 pr-9 text-white hover:bg-brand-red/20 ${value === option.value ? 'bg-brand-red/30' : ''}`}
+                            role="option"
+                            aria-selected={value === option.value}
+                        >
+                            <span className={`block truncate ${value === option.value ? 'font-semibold' : 'font-normal'}`}>{option.label}</span>
+                             {value === option.value && (
+                                <span className="absolute inset-y-0 right-0 flex items-center pr-2 text-brand-red">
+                                    <CheckCircleIcon className="h-5 w-5" aria-hidden="true" />
+                                </span>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+};
+
 
 const AgendaView = ({ appointments, clients, services, onStartService, onFinishService, onEditAppointment, onDeleteAppointment }: { appointments: Appointment[]; clients: Client[]; services: Service[]; onStartService: (id: string) => void; onFinishService: (id: string) => void; onEditAppointment: (appointment: Appointment) => void; onDeleteAppointment: (id: string) => void; }) => {
     const [activeAgendaTab, setActiveAgendaTab] = useState<'today' | 'general' | 'history'>('today');
@@ -209,17 +275,16 @@ const AgendaView = ({ appointments, clients, services, onStartService, onFinishS
              {activeAgendaTab === 'general' && (
                 <div className="bg-brand-gray-medium p-3 rounded-md">
                     <label htmlFor="sort-order" className="block text-sm font-medium text-gray-300 mb-1">Ordenar por</label>
-                    <select
-                        id="sort-order"
+                    <CustomSelect
                         value={sortBy}
-                        onChange={e => setSortBy(e.target.value as AgendaSortBy)}
-                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
-                    >
-                        <option value="default">Padrão (Mais Antigo)</option>
-                        <option value="recent">Mais Recente</option>
-                        <option value="time_asc">Hora (Crescente)</option>
-                        <option value="time_desc">Hora (Decrescente)</option>
-                    </select>
+                        onChange={(value) => setSortBy(value as AgendaSortBy)}
+                        options={[
+                            { value: 'default', label: 'Padrão (Mais Antigo)' },
+                            { value: 'recent', label: 'Mais Recente' },
+                            { value: 'time_asc', label: 'Hora (Crescente)' },
+                            { value: 'time_desc', label: 'Hora (Decrescente)' },
+                        ]}
+                    />
                 </div>
             )}
              {activeAgendaTab === 'history' && (
@@ -496,7 +561,7 @@ interface WAMessage {
 }
 
 
-const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; [key: string]: any; }) => {
+const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDbChange }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDbChange: () => void; }) => {
     const [chats, setChats] = useState<WAChat[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [messages, setMessages] = useState<WAMessage[]>([]);
@@ -505,6 +570,29 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
     const wasConnected = useRef(false);
     
     const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
+
+    useEffect(() => {
+        const fetchInitialStatus = async () => {
+            try {
+                const response = await fetch('/api/whatsapp/status');
+                if (response.ok) {
+                    const data = await response.json();
+                    setStatusMessage(data.message);
+                    setQrCode(data.qrCode || null);
+                    const newStatus = data.isConnected ? 'connected' : (data.qrCode ? 'loading' : 'disconnected');
+                    setStatus(newStatus);
+                    if (data.isConnected) {
+                        wasConnected.current = true;
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to fetch initial WA status:", error);
+                setStatus('disconnected');
+                setStatusMessage('Erro ao obter status do servidor.');
+            }
+        };
+        fetchInitialStatus();
+    }, [setStatus, setQrCode, setStatusMessage]);
 
     useEffect(() => {
         if (status === 'connected') {
@@ -534,7 +622,6 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                             setQrCode(qrCode || null);
                             const newStatus = isConnected ? 'connected' : (qrCode ? 'loading' : 'disconnected');
                             setStatus(newStatus);
-
                         } else if (event.type === 'message') {
                             const newMessage: WAMessage = event.data;
                             const chatId = newMessage.id.remote;
@@ -559,6 +646,9 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                                 }
                                 return [updatedChat, ...newChats];
                             });
+                        } else if (event.type === 'db_change') {
+                            addNotification("Novos dados do chatbot foram sincronizados.");
+                            onDbChange();
                         }
                     } else {
                          await new Promise(resolve => setTimeout(resolve, 5000));
@@ -575,7 +665,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         return () => {
             isPolling = false;
         };
-    }, [currentUser, activeChatId, setStatus, setQrCode, setStatusMessage]);
+    }, [currentUser, activeChatId, setStatus, setQrCode, setStatusMessage, onDbChange, addNotification]);
 
     // Fetch initial chats when connection is established
     useEffect(() => {
@@ -2071,7 +2161,7 @@ const App = () => {
             case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
             case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
             case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} />;
+            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} onDbChange={loadData} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
             case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
