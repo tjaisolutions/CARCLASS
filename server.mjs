@@ -15,6 +15,8 @@ import qrcode from 'qrcode';
 // --- SETUP ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.RENDER_DISK_PATH || path.join(__dirname, 'data');
+const DIST_DIR = path.join(__dirname, 'dist');
+
 if (!fs.existsSync(DATA_DIR)) {
   console.log(`[Persistence] Criando diretório de dados em: ${DATA_DIR}`);
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -192,7 +194,9 @@ const startWhatsApp = async () => {
                 startWhatsApp();
             } else {
                  // Logged out, clear session
-                fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+                if (fs.existsSync(SESSION_DIR)) {
+                    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+                }
                 waConnectionStatus.message = 'Desconectado. Por favor, escaneie um novo QR Code.';
                  startWhatsApp(); // restart to generate new QR
             }
@@ -241,7 +245,9 @@ app.get('/api/whatsapp/status', (req, res) => {
 
 app.get('/api/whatsapp/events', (req, res) => {
     const handler = (event) => {
-        res.json(event);
+        if (!res.headersSent) {
+            res.json(event);
+        }
     };
     waEvents.once('event', handler);
     // Clean up listener if client disconnects
@@ -435,4 +441,20 @@ const handleBotLogic = async (senderJid, message, senderName) => {
     saveDb();
 };
 
-startWhatsApp().catch(err => console.error("Erro ao iniciar o WhatsApp:", err));
+// --- SERVE STATIC FRONTEND ---
+// Must be after API routes
+app.use(express.static(DIST_DIR));
+app.get('*', (req, res) => {
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+});
+
+
+// --- START SERVER AND WHATSAPP ---
+app.listen(port, () => {
+    console.log(`[Server] Servidor HTTP rodando na porta ${port}`);
+    console.log(`[Server] Acessível em http://localhost:${port}`);
+    
+    // Once the server is listening, start the WhatsApp connection process.
+    // This allows the deployment to succeed even if WA is waiting for a QR scan.
+    startWhatsApp().catch(err => console.error("[Startup] Erro fatal ao iniciar o WhatsApp:", err));
+});
