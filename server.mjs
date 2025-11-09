@@ -399,11 +399,11 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             break;
 
         case 'VALIDATING_CPF':
-            const client = findClientByCpf(message);
-            if (client) {
-                session.clientId = client.id;
-                await sendBotMessage(`Cadastro encontrado em nome de *${client.name}*!`);
-                const upcomingAppointment = getClientUpcomingAppointment(client.id);
+            const foundClient = findClientByCpf(message);
+            if (foundClient) {
+                session.clientId = foundClient.id;
+                await sendBotMessage(`Cadastro encontrado em nome de *${foundClient.name}*!`);
+                const upcomingAppointment = getClientUpcomingAppointment(foundClient.id);
                 if (upcomingAppointment) {
                     session.existingAppointmentId = upcomingAppointment.id;
                     const appointmentDate = new Date(upcomingAppointment.date + 'T' + upcomingAppointment.time).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -507,15 +507,15 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 session.state = 'AWAITING_PROTECTION_DETAILS';
             } else if (normalizedMessage.includes('nao')) {
                 session.protections = 'Nenhuma';
-                const client = aistudio.clients.find(c => c.id === session.clientId);
-                if (client.cars && client.cars.length > 0) {
-                    if (client.cars.length === 1) {
-                        const car = client.cars[0];
+                const clientForProtectionCheck = aistudio.clients.find(c => c.id === session.clientId);
+                if (clientForProtectionCheck.cars && clientForProtectionCheck.cars.length > 0) {
+                    if (clientForProtectionCheck.cars.length === 1) {
+                        const car = clientForProtectionCheck.cars[0];
                         await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`);
                         session.state = 'CONFIRM_EXISTING_VEHICLE';
                     } else {
                         let carList = "O serviço será em qual dos seus veículos?\n";
-                        client.cars.forEach((car, index) => {
+                        clientForProtectionCheck.cars.forEach((car, index) => {
                             carList += `${index + 1}. ${car.model} (${car.plate})\n`;
                         });
                         carList += "\nDigite o número correspondente.";
@@ -533,15 +533,15 @@ const handleBotLogic = async (senderJid, message, senderName) => {
 
         case 'AWAITING_PROTECTION_DETAILS':
             session.protections = message;
-            const client = aistudio.clients.find(c => c.id === session.clientId);
-            if (client.cars && client.cars.length > 0) {
-                 if (client.cars.length === 1) {
-                    const car = client.cars[0];
+            const clientForDetailsCheck = aistudio.clients.find(c => c.id === session.clientId);
+            if (clientForDetailsCheck.cars && clientForDetailsCheck.cars.length > 0) {
+                 if (clientForDetailsCheck.cars.length === 1) {
+                    const car = clientForDetailsCheck.cars[0];
                     await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`);
                     session.state = 'CONFIRM_EXISTING_VEHICLE';
                 } else {
                     let carList = "Entendido. E o serviço será em qual dos seus veículos?\n";
-                    client.cars.forEach((car, index) => { carList += `${index + 1}. ${car.model} (${car.plate})\n`; });
+                    clientForDetailsCheck.cars.forEach((car, index) => { carList += `${index + 1}. ${car.model} (${car.plate})\n`; });
                     carList += "\nDigite o número correspondente.";
                     await sendBotMessage(carList);
                     session.state = 'CHOOSE_AMONG_VEHICLES';
