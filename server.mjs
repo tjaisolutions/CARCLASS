@@ -441,20 +441,29 @@ const handleBotLogic = async (senderJid, message, senderName) => {
     saveDb();
 };
 
-// --- SERVE STATIC FRONTEND ---
-// Must be after API routes
-app.use(express.static(DIST_DIR));
-app.get('*', (req, res) => {
-    res.sendFile(path.join(DIST_DIR, 'index.html'));
-});
+// --- STARTUP LOGIC ---
+// Differentiate between development (Vite middleware) and production (standalone server)
+const isViteDev = process.env.npm_lifecycle_script?.includes('vite');
 
+if (isViteDev) {
+    // DEVELOPMENT: Running as Vite middleware.
+    // The `app` is already configured with API routes.
+    // Vite handles static serving and the server itself.
+    // We just need to start the WhatsApp client.
+    console.log('[Vite Dev] Anexando servidor Express e iniciando WhatsApp...');
+    startWhatsApp().catch(err => console.error("[Vite Dev Startup] Erro fatal ao iniciar o WhatsApp:", err));
+} else {
+    // PRODUCTION: Running as a standalone Node.js server.
+    // Serve the built frontend files.
+    app.use(express.static(DIST_DIR));
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(DIST_DIR, 'index.html'));
+    });
 
-// --- START SERVER AND WHATSAPP ---
-app.listen(port, () => {
-    console.log(`[Server] Servidor HTTP rodando na porta ${port}`);
-    console.log(`[Server] Acessível em http://localhost:${port}`);
-    
-    // Once the server is listening, start the WhatsApp connection process.
-    // This allows the deployment to succeed even if WA is waiting for a QR scan.
-    startWhatsApp().catch(err => console.error("[Startup] Erro fatal ao iniciar o WhatsApp:", err));
-});
+    // Start listening and then start WhatsApp.
+    app.listen(port, () => {
+        console.log(`[Server] Servidor HTTP rodando na porta ${port}`);
+        console.log(`[Server] Acessível em http://localhost:${port}`);
+        startWhatsApp().catch(err => console.error("[Production Startup] Erro fatal ao iniciar o WhatsApp:", err));
+    });
+}
