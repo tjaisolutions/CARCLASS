@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -561,7 +562,7 @@ interface WAMessage {
 }
 
 
-const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDbChange }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDbChange: () => void; }) => {
+const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDataUpdate: (data: any) => void; }) => {
     const [chats, setChats] = useState<WAChat[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [messages, setMessages] = useState<WAMessage[]>([]);
@@ -649,7 +650,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                             });
                         } else if (event.type === 'db_change') {
                             addNotification("Novos dados do chatbot foram sincronizados.");
-                            onDbChange();
+                            onDataUpdate(event.data);
                         }
                     } else {
                          await new Promise(resolve => setTimeout(resolve, 5000));
@@ -666,7 +667,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         return () => {
             isPolling = false;
         };
-    }, [currentUser, activeChatId, setStatus, setQrCode, setStatusMessage, onDbChange, addNotification]);
+    }, [currentUser, activeChatId, setStatus, setQrCode, setStatusMessage, onDataUpdate, addNotification]);
 
     // Fetch initial chats when connection is established
     useEffect(() => {
@@ -1979,6 +1980,23 @@ const App = () => {
             addNotification("Erro: Falha ao salvar os dados no servidor.");
         }
     }, [addNotification]);
+    
+    const handleDataUpdateFromBot = useCallback((data: any) => {
+        if (!data) return;
+
+        if (data.newClient) {
+            setClients(prev => [...prev, data.newClient]);
+        }
+        if (data.updatedClient) {
+            setClients(prev => prev.map(c => c.id === data.updatedClient.id ? data.updatedClient : c));
+        }
+        if (data.newAppointment) {
+            setAppointments(prev => [...prev, data.newAppointment]);
+        }
+        if (data.updatedAppointment) {
+            setAppointments(prev => prev.map(a => a.id === data.updatedAppointment.id ? data.updatedAppointment : a));
+        }
+    }, []);
 
     const loadData = useCallback(async () => {
         try {
@@ -2194,7 +2212,7 @@ const App = () => {
             case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
             case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
             case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} onDbChange={loadData} />;
+            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} onDataUpdate={handleDataUpdateFromBot} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
             case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
