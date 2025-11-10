@@ -105,11 +105,11 @@ app.use(express.json());
 
 
 // --- API ROUTES ---
-app.get('/api/data', (req, res) => {
+app.get('/data', (req, res) => {
     res.json(aistudio);
 });
 
-app.post('/api/data', (req, res) => {
+app.post('/data', (req, res) => {
     for (const key in req.body) {
         if (Object.prototype.hasOwnProperty.call(aistudio, key)) {
             aistudio[key] = req.body[key];
@@ -239,11 +239,11 @@ const startWhatsApp = async () => {
 };
 
 // --- WHATSAPP API ROUTES ---
-app.get('/api/whatsapp/status', (req, res) => {
+app.get('/whatsapp/status', (req, res) => {
     res.json(waConnectionStatus);
 });
 
-app.get('/api/whatsapp/events', (req, res) => {
+app.get('/whatsapp/events', (req, res) => {
     const handler = (event) => {
         if (!res.headersSent) {
             res.json(event);
@@ -256,7 +256,7 @@ app.get('/api/whatsapp/events', (req, res) => {
     });
 });
 
-app.get('/api/whatsapp/chats', (req, res) => {
+app.get('/whatsapp/chats', (req, res) => {
      const chats = Object.keys(aistudio.wa_chats).map(chatId => {
         const messages = aistudio.wa_chats[chatId];
         const lastMessage = messages[messages.length - 1];
@@ -274,13 +274,13 @@ app.get('/api/whatsapp/chats', (req, res) => {
     res.json(chats);
 });
 
-app.get('/api/whatsapp/messages/:chatId', (req, res) => {
+app.get('/whatsapp/messages/:chatId', (req, res) => {
     const { chatId } = req.params;
     const messages = aistudio.wa_chats[chatId] || [];
     res.json(messages);
 });
 
-app.post('/api/whatsapp/send-message', async (req, res) => {
+app.post('/whatsapp/send-message', async (req, res) => {
     if (!sock || !waConnectionStatus.isConnected) {
         return res.status(400).json({ error: "WhatsApp não está conectado." });
     }
@@ -438,7 +438,11 @@ const handleBotLogic = async (senderJid, message, senderName) => {
         let summary = "Ótimo! Por favor, confirme os detalhes do seu agendamento:\n\n";
         if (service) summary += `*Serviço:* ${service.name}\n`;
         if (car) summary += `*Veículo:* ${car.model} (${car.plate})\n`;
-        if (date && time) summary += `*Data e Hora:* ${new Date(date + 'T' + time).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })} às ${time}h\n`;
+        if (date && time) {
+             const confirmationDate = new Date(`${date}T${time}`);
+             const formattedDate = confirmationDate.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+             summary += `*Data e Hora:* ${formattedDate} às ${time}h\n`;
+        }
         if (protections) summary += `*Proteções informadas:* ${protections}\n`;
 
         summary += "\nEstá tudo correto? Responda *Confirmar* ou *Alterar*.";
@@ -493,9 +497,10 @@ const handleBotLogic = async (senderJid, message, senderName) => {
 
         case 'AWAITING_EXISTING_APPOINTMENT_ACTION':
              if (normalizedMessage.includes('cancelar')) {
-                aistudio.appointments = aistudio.appointments.filter(a => a.id !== session.existingAppointmentId);
+                const appointmentId = session.existingAppointmentId;
+                aistudio.appointments = aistudio.appointments.filter(a => a.id !== appointmentId);
                 await sendBotMessage("Seu agendamento foi cancelado com sucesso. O horário agora está disponível novamente. Se precisar de algo mais, é só chamar!");
-                waEvents.emit('event', { type: 'db_change', data: { cancelledAppointmentId: session.existingAppointmentId } });
+                waEvents.emit('event', { type: 'db_change', data: { cancelledAppointmentId: appointmentId } });
                 resetSession();
             } else if (normalizedMessage.includes('alterar')) {
                 const appointment = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
