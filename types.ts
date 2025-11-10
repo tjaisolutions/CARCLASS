@@ -115,7 +115,7 @@ export const ALL_TABS = [
 export interface User {
   id: string;
   username: string;
-  password; string; // In a real app, this should be a hash
+  password: string; // In a real app, this should be a hash
   role: UserRole;
   permissions: {
     [tabId: string]: boolean;
