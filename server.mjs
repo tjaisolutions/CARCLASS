@@ -304,7 +304,9 @@ const startWhatsApp = async () => {
         console.log(`[WhatsApp] Mensagem de ${senderName} (${senderJid}): "${messageBody}"`);
         
         // --- SAVE MESSAGE & NOTIFY FRONTEND ---
-         if (!aistudio.wa_chats[senderJid]) {
+        const isNewConversation = !aistudio.wa_chats[senderJid] || aistudio.wa_chats[senderJid].length === 0;
+
+        if (!aistudio.wa_chats[senderJid]) {
             aistudio.wa_chats[senderJid] = [];
         }
         const messageToStore = {
@@ -316,6 +318,9 @@ const startWhatsApp = async () => {
         aistudio.wa_chats[senderJid].push(messageToStore);
         saveDb();
         
+         if (isNewConversation) {
+            waEvents.emit('event', { type: 'new_conversation', senderName });
+         }
          waEvents.emit('event', { type: 'message', data: messageToStore, senderName });
          
          // --- CHATBOT LOGIC ---
@@ -509,15 +514,23 @@ const handleBotLogic = async (senderJid, message, senderName) => {
     let session = aistudio.chatbot_sessions[senderJid] || { state: 'GREETING' };
     const normalizedMessage = normalizeText(message);
     const clientNumber = senderJid.split('@')[0];
+    const restartHint = '\n\n_(A qualquer momento, digite *reiniciar* para recomeçar.)_';
+    
+    // Global reset command
+    const resetKeywords = ['reiniciar', 'comecar de novo', 'menu', 'inicio'];
+    if (resetKeywords.some(kw => normalizedMessage.includes(kw))) {
+        session = { state: 'GREETING' };
+    }
     
     if (session.state === 'CONVERSATION_ENDED' && message) {
         session = { state: 'GREETING' };
     }
 
-    const sendBotMessage = async (text) => {
-        await sendMessageWTyping(senderJid, text);
+    const sendBotMessage = async (text, withHint = false) => {
+        const finalMessage = text + (withHint ? restartHint : '');
+        await sendMessageWTyping(senderJid, finalMessage);
         if (!aistudio.wa_chats[senderJid]) aistudio.wa_chats[senderJid] = [];
-        const messageToStore = { id: { fromMe: true, remote: senderJid }, body: text, timestamp: Date.now() / 1000, isBot: true };
+        const messageToStore = { id: { fromMe: true, remote: senderJid }, body: finalMessage, timestamp: Date.now() / 1000, isBot: true };
         aistudio.wa_chats[senderJid].push(messageToStore);
         waEvents.emit('event', { type: 'message', data: messageToStore, senderName });
     };
@@ -528,13 +541,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
     
     // Sends the complete, updated data to the frontend for robust sync
     const notifyFrontendOfDbChange = () => {
-        waEvents.emit('event', { 
-            type: 'db_change', 
-            data: { 
-                clients: aistudio.clients, 
-                appointments: aistudio.appointments 
-            } 
-        });
+        waEvents.emit('event', { type: 'db_change' });
     }
     
     const showSummaryAndConfirm = async () => {
@@ -554,7 +561,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
         if (protections) summary += `*Proteções informadas:* ${protections}\n`;
 
         summary += "\nEstá tudo correto? Responda *Confirmar* ou *Alterar*.";
-        await sendBotMessage(summary);
+        await sendBotMessage(summary, true);
         session.state = 'AWAITING_FINAL_CONFIRMATION';
     };
 
@@ -565,15 +572,18 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             break;
 
         case 'AWAITING_IS_CLIENT_RESPONSE':
-            if (normalizedMessage.includes('sim')) {
-                await sendBotMessage("Que bom te ver de volta! Por favor, digite seu CPF para localizarmos seu cadastro. (Pode ser com pontos e traço)");
+            const yesKeywords = ['sim', 'sou', 'ja sou'];
+            const noKeywords = ['nao', 'ainda nao', 'nao sou'];
+
+            if (yesKeywords.some(kw => normalizedMessage.includes(kw))) {
+                await sendBotMessage("Que bom te ver de volta! Por favor, digite seu CPF para localizarmos seu cadastro. (Pode ser com pontos e traço)", true);
                 session.state = 'VALIDATING_CPF';
                 session.cpfRetryCount = 0;
-            } else if (normalizedMessage.includes('nao')) {
-                await sendBotMessage("Seja bem-vindo(a)! Vamos realizar seu cadastro. Por favor, digite seu nome completo.");
+            } else if (noKeywords.some(kw => normalizedMessage.includes(kw))) {
+                await sendBotMessage("Seja bem-vindo(a)! Vamos realizar seu cadastro. Por favor, digite seu nome completo.", true);
                 session.state = 'AWAITING_NEW_CLIENT_NAME';
             } else {
-                await sendBotMessage("Desculpe, não entendi. Por favor, responda com *Sim* ou *Não*.");
+                await sendBotMessage("Desculpe, não entendi. Por favor, responda com *Sim* ou *Não*.", true);
             }
             break;
 
@@ -586,18 +596,18 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 if (upcomingAppointment) {
                     session.existingAppointmentId = upcomingAppointment.id;
                     const appointmentDate = new Date(upcomingAppointment.date + 'T' + upcomingAppointment.time).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-                    await sendBotMessage(`Verifiquei aqui e você já tem um agendamento para ${appointmentDate}. Você deseja *alterar*, *cancelar* este agendamento ou *prosseguir* com um novo?`);
+                    await sendBotMessage(`Verifiquei aqui e você já tem um agendamento para ${appointmentDate}. Você deseja *alterar*, *cancelar* este agendamento ou *prosseguir* com um novo?`, true);
                     session.state = 'AWAITING_EXISTING_APPOINTMENT_ACTION';
                 } else {
-                    await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+                    await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?", true);
                     session.state = 'CHOOSE_SERVICE_OPTION';
                 }
             } else {
                 session.cpfRetryCount++;
                 if (session.cpfRetryCount < 2) {
-                    await sendBotMessage("CPF não encontrado. Por favor, tente digitar novamente.");
+                    await sendBotMessage("CPF não encontrado. Por favor, tente digitar novamente.", true);
                 } else {
-                    await sendBotMessage("Ainda não localizei seu CPF. Vamos fazer um novo cadastro para você. Qual o seu nome completo?");
+                    await sendBotMessage("Ainda não localizei seu CPF. Vamos fazer um novo cadastro para você. Qual o seu nome completo?", true);
                     session.state = 'AWAITING_NEW_CLIENT_NAME';
                 }
             }
@@ -613,19 +623,19 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             } else if (normalizedMessage.includes('alterar')) {
                 const appointment = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
                 session.serviceId = appointment.serviceIds[0]; 
-                await sendBotMessage("Ok, vamos alterar. " + getAvailableSlots());
+                await sendBotMessage("Ok, vamos alterar. " + getAvailableSlots(), true);
                 session.state = 'AWAITING_DATETIME_FOR_CHANGE';
             } else if (normalizedMessage.includes('prosseguir')) {
-                await sendBotMessage("Certo! Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+                await sendBotMessage("Certo! Deseja ver a lista de serviços ou prefere escolher o serviço no local?", true);
                 session.state = 'CHOOSE_SERVICE_OPTION';
             } else {
-                await sendBotMessage("Por favor, responda com *alterar*, *cancelar* ou *prosseguir*.");
+                await sendBotMessage("Por favor, responda com *alterar*, *cancelar* ou *prosseguir*.", true);
             }
             break;
 
         case 'AWAITING_NEW_CLIENT_NAME':
             session.newClientName = message;
-            await sendBotMessage("Obrigado. Agora, por favor, digite seu CPF.");
+            await sendBotMessage("Obrigado. Agora, por favor, digite seu CPF.", true);
             session.state = 'AWAITING_NEW_CLIENT_CPF';
             break;
 
@@ -641,12 +651,15 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 await sendBotMessage("Cadastro concluído com sucesso!");
                 notifyFrontendOfDbChange();
             }
-            await sendBotMessage("Você deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+            await sendBotMessage("Você deseja ver a lista de serviços ou prefere escolher o serviço no local?", true);
             session.state = 'CHOOSE_SERVICE_OPTION';
             break;
 
         case 'CHOOSE_SERVICE_OPTION':
-            if (normalizedMessage.includes('lista') || normalizedMessage.includes('ver')) {
+            const localKeywords = ['local', 'pessoalmente', 'ai', 'no local', 'escolher no local', 'ver no local', 'presencialmente', 'pessoal', 'escolher ai'];
+            const listKeywords = ['lista', 'servicos', 'ver a lista'];
+            
+            if (listKeywords.some(kw => normalizedMessage.includes(kw))) {
                 if (aistudio.catalogFiles && aistudio.catalogFiles.length > 0) {
                     await sendBotMessage("Certo! Enviando nosso catálogo de serviços para você:");
                      for (const file of aistudio.catalogFiles) {
@@ -656,18 +669,18 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                              fileName: file.file.name
                          });
                      }
-                    await sendBotMessage("Qual dos serviços acima você deseja agendar?");
+                    await sendBotMessage("Qual dos serviços acima você deseja agendar?", true);
                 } else {
                     const serviceList = aistudio.services.map(s => `*- ${s.name}*`).join('\n');
-                    await sendBotMessage(`Claro! Aqui estão nossos serviços:\n\n${serviceList}\n\nQual deles você deseja?`);
+                    await sendBotMessage(`Claro! Aqui estão nossos serviços:\n\n${serviceList}\n\nQual deles você deseja?`, true);
                 }
                 session.state = 'AWAITING_SERVICE_CHOICE';
-            } else if (normalizedMessage.includes('local') || normalizedMessage.includes('escolher')) {
+            } else if (localKeywords.some(kw => normalizedMessage.includes(kw))) {
                 session.serviceId = 'on-site';
-                await sendBotMessage("Entendido. " + getAvailableSlots());
+                await sendBotMessage("Entendido. " + getAvailableSlots(), true);
                 session.state = 'AWAITING_DATETIME_CHOICE';
             } else {
-                await sendBotMessage("Por favor, me diga se quer ver a *lista de serviços* ou *escolher no local*.");
+                await sendBotMessage("Por favor, me diga se quer ver a *lista de serviços* ou *escolher no local*.", true);
             }
             break;
 
@@ -675,10 +688,10 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             const chosenService = aistudio.services.find(s => normalizeText(s.name).includes(normalizedMessage));
             if (chosenService) {
                 session.serviceId = chosenService.id;
-                await sendBotMessage(`Ótimo, serviço *${chosenService.name}* selecionado. ` + getAvailableSlots());
+                await sendBotMessage(`Ótimo, serviço *${chosenService.name}* selecionado. ` + getAvailableSlots(), true);
                 session.state = 'AWAITING_DATETIME_CHOICE';
             } else {
-                await sendBotMessage("Não encontrei este serviço. Por favor, digite o nome de um dos serviços da nossa lista.");
+                await sendBotMessage("Não encontrei este serviço. Por favor, digite o nome de um dos serviços da nossa lista.", true);
             }
             break;
             
@@ -697,24 +710,24 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 if (session.state === 'AWAITING_DATETIME_FOR_CHANGE') {
                      if (clientForVehicleCheck.cars && clientForVehicleCheck.cars.length > 0) {
                          const carToConfirm = clientForVehicleCheck.cars.find(c => c.id === aistudio.appointments.find(a => a.id === session.existingAppointmentId).carId);
-                         await sendBotMessage(`O serviço será no seu *${carToConfirm.model} (${carToConfirm.plate})*? (*Sim* ou *Não*)`);
+                         await sendBotMessage(`O serviço será no seu *${carToConfirm.model} (${carToConfirm.plate})*? (*Sim* ou *Não*)`, true);
                          session.state = 'CONFIRM_EXISTING_VEHICLE_FOR_CHANGE';
                      } else { // Should not happen if appointment existed, but as a fallback
-                          await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
+                          await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)", true);
                           session.state = 'AWAITING_PROTECTION_RESPONSE';
                      }
                 } else {
-                     await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
+                     await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)", true);
                      session.state = 'AWAITING_PROTECTION_RESPONSE';
                 }
             } else {
-                await sendBotMessage("Desculpe, não entendi a data e hora ou este horário não está disponível. Por favor, escolha um dos horários da lista ou digite, por exemplo: 'terça as 10h' ou 'dia 22 as 15h'.");
+                await sendBotMessage("Desculpe, não entendi a data e hora ou este horário não está disponível. Por favor, escolha um dos horários da lista ou digite, por exemplo: 'terça as 10h' ou 'dia 22 as 15h'.", true);
             }
             break;
             
         case 'AWAITING_PROTECTION_RESPONSE':
             if (normalizedMessage.includes('sim')) {
-                await sendBotMessage("Por favor, me diga qual ou quais proteções ele possui.");
+                await sendBotMessage("Por favor, me diga qual ou quais proteções ele possui.", true);
                 session.state = 'AWAITING_PROTECTION_DETAILS';
             } else if (normalizedMessage.includes('nao')) {
                 session.protections = 'Nenhuma';
@@ -722,7 +735,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 if (clientForProtectionCheck.cars && clientForProtectionCheck.cars.length > 0) {
                     if (clientForProtectionCheck.cars.length === 1) {
                         const car = clientForProtectionCheck.cars[0];
-                        await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`);
+                        await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`, true);
                         session.state = 'CONFIRM_EXISTING_VEHICLE';
                     } else {
                         let carList = "O serviço será em qual dos seus veículos?\n";
@@ -730,15 +743,15 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                             carList += `${index + 1}. ${car.model} (${car.plate})\n`;
                         });
                         carList += "\nDigite o número correspondente.";
-                        await sendBotMessage(carList);
+                        await sendBotMessage(carList, true);
                         session.state = 'CHOOSE_AMONG_VEHICLES';
                     }
                 } else {
-                    await sendBotMessage("Para finalizar, qual o modelo e a placa do veículo? (Ex: Honda Civic ABC1D23)");
+                    await sendBotMessage("Para finalizar, qual o modelo e a placa do veículo? (Ex: Honda Civic ABC1D23)", true);
                     session.state = 'AWAITING_NEW_VEHICLE';
                 }
             } else {
-                await sendBotMessage("Por favor, responda com *Sim* ou *Não*.");
+                await sendBotMessage("Por favor, responda com *Sim* ou *Não*.", true);
             }
             break;
 
@@ -748,17 +761,17 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             if (clientForDetailsCheck.cars && clientForDetailsCheck.cars.length > 0) {
                  if (clientForDetailsCheck.cars.length === 1) {
                     const car = clientForDetailsCheck.cars[0];
-                    await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`);
+                    await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`, true);
                     session.state = 'CONFIRM_EXISTING_VEHICLE';
                 } else {
                     let carList = "Entendido. E o serviço será em qual dos seus veículos?\n";
                     clientForDetailsCheck.cars.forEach((car, index) => { carList += `${index + 1}. ${car.model} (${car.plate})\n`; });
                     carList += "\nDigite o número correspondente.";
-                    await sendBotMessage(carList);
+                    await sendBotMessage(carList, true);
                     session.state = 'CHOOSE_AMONG_VEHICLES';
                 }
             } else {
-                 await sendBotMessage("Entendido. Para finalizar, qual o modelo e a placa do veículo? (Ex: Honda Civic ABC1D23)");
+                 await sendBotMessage("Entendido. Para finalizar, qual o modelo e a placa do veículo? (Ex: Honda Civic ABC1D23)", true);
                  session.state = 'AWAITING_NEW_VEHICLE';
             }
             break;
@@ -769,7 +782,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                  session.carId = clientToConfirm.cars[0].id;
                  await showSummaryAndConfirm();
              } else {
-                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.");
+                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.", true);
                  session.state = 'AWAITING_NEW_VEHICLE';
              }
              break;
@@ -781,7 +794,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                  session.carId = appointmentToChange.carId;
                  await showSummaryAndConfirm();
              } else {
-                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.");
+                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.", true);
                  session.state = 'AWAITING_NEW_VEHICLE';
              }
              break;
@@ -793,14 +806,14 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 session.carId = clientToChoose.cars[choice].id;
                 await showSummaryAndConfirm();
             } else {
-                await sendBotMessage("Opção inválida. Por favor, digite o número de um dos veículos da lista.");
+                await sendBotMessage("Opção inválida. Por favor, digite o número de um dos veículos da lista.", true);
             }
             break;
 
         case 'AWAITING_NEW_VEHICLE':
             const parts = message.trim().split(' ');
             if (parts.length < 2) {
-                 await sendBotMessage("Formato inválido. Por favor, envie o modelo e a placa. (Ex: Honda Civic ABC1D23)");
+                 await sendBotMessage("Formato inválido. Por favor, envie o modelo e a placa. (Ex: Honda Civic ABC1D23)", true);
                  return;
             }
             const plate = parts.pop();
@@ -821,7 +834,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             if (normalizedMessage.includes('confirmar')) {
                 if (!isSlotAvailable(session.date, session.time)) {
                     await sendBotMessage("Oh, que pena! Parece que alguém acabou de agendar neste mesmo horário enquanto você confirmava. Vamos tentar outro?");
-                    await sendBotMessage(getAvailableSlots());
+                    await sendBotMessage(getAvailableSlots(), true);
                     session.state = 'AWAITING_DATETIME_CHOICE';
                     break;
                 }
@@ -845,25 +858,25 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 session.state = 'CONVERSATION_ENDED';
 
             } else if (normalizedMessage.includes('alterar')) {
-                await sendBotMessage("O que você deseja alterar? (*Serviço*, *Veículo*, *Data/Hora* ou *Proteção*)");
+                await sendBotMessage("O que você deseja alterar? (*Serviço*, *Veículo*, *Data/Hora* ou *Proteção*)", true);
                 session.state = 'AWAITING_ALTERATION_CHOICE';
             } else {
-                await sendBotMessage("Por favor, responda com *Confirmar* ou *Alterar*.");
+                await sendBotMessage("Por favor, responda com *Confirmar* ou *Alterar*.", true);
             }
             break;
             
         case 'AWAITING_ALTERATION_CHOICE':
              if (normalizedMessage.includes('servico')) {
                 session.state = 'CHOOSE_SERVICE_OPTION';
-                await sendBotMessage("Ok, vamos alterar o serviço. Deseja ver a lista ou escolher no local?");
+                await sendBotMessage("Ok, vamos alterar o serviço. Deseja ver a lista ou escolher no local?", true);
              } else if (normalizedMessage.includes('veiculo') || normalizedMessage.includes('protecao')) {
                  session.state = 'AWAITING_PROTECTION_RESPONSE'; // Restart from vehicle/protection step
-                 await sendBotMessage("Vamos alterar o veículo. Ele possui alguma proteção? (*Sim* ou *Não*)");
+                 await sendBotMessage("Vamos alterar o veículo. Ele possui alguma proteção? (*Sim* ou *Não*)", true);
              } else if (normalizedMessage.includes('data') || normalizedMessage.includes('hora')) {
-                 await sendBotMessage("Ok, vamos alterar a data/hora. " + getAvailableSlots());
+                 await sendBotMessage("Ok, vamos alterar a data/hora. " + getAvailableSlots(), true);
                  session.state = 'AWAITING_DATETIME_CHOICE';
              } else {
-                 await sendBotMessage("Não entendi. Por favor, escolha entre *Serviço*, *Veículo*, *Data/Hora* ou *Proteção*.");
+                 await sendBotMessage("Não entendi. Por favor, escolha entre *Serviço*, *Veículo*, *Data/Hora* ou *Proteção*.", true);
              }
              break;
     }
