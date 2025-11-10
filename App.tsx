@@ -1,8 +1,3 @@
-
-
-
-
-
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -1936,6 +1931,7 @@ const App = () => {
     const [conversationLogs, setConversationLogs] = useState<ConversationLog[]>([]);
     const [isProcessingFile, setIsProcessingFile] = useState(false);
     
+    const [isLoading, setIsLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loginError, setLoginError] = useState('');
     const [users, setUsers] = useState<User[]>([]);
@@ -2022,6 +2018,8 @@ const App = () => {
         } catch (error) {
             console.error("Failed to load data from server:", error);
             addNotification("Erro: Não foi possível carregar os dados do servidor.");
+        } finally {
+            setIsLoading(false);
         }
     }, [addNotification]);
     
@@ -2223,6 +2221,18 @@ const App = () => {
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
         }
     };
+
+    if (isLoading) {
+        return (
+            <div className="bg-brand-gray-dark min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                    <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="CAR CLASS Logo" className="h-20 w-20 rounded-full mx-auto mb-4" />
+                    <div className="w-16 h-16 border-4 border-dashed border-brand-red rounded-full animate-spin mx-auto"></div>
+                    <p className="text-white mt-4">Carregando dados...</p>
+                </div>
+            </div>
+        );
+    }
 
     if (!currentUser) {
         return <LoginView onLogin={handleLogin} error={loginError} />;
