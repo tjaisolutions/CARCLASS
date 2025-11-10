@@ -25,6 +25,7 @@ if (!fs.existsSync(DATA_DIR)) {
 
 export const app = express();
 const port = process.env.PORT || 3001;
+const apiRouter = express.Router();
 
 // --- GERENCIAMENTO DE ESTADO SIMPLIFICADO ---
 const DB_FILE_PATH = path.join(DATA_DIR, 'db.json');
@@ -135,11 +136,11 @@ app.use(express.json());
 
 
 // --- API ROUTES ---
-app.get('/data', (req, res) => {
+apiRouter.get('/data', (req, res) => {
     res.json(aistudio);
 });
 
-app.post('/data', (req, res) => {
+apiRouter.post('/data', (req, res) => {
     for (const key in req.body) {
         if (Object.prototype.hasOwnProperty.call(aistudio, key)) {
             aistudio[key] = req.body[key];
@@ -269,11 +270,11 @@ const startWhatsApp = async () => {
 };
 
 // --- WHATSAPP API ROUTES ---
-app.get('/whatsapp/status', (req, res) => {
+apiRouter.get('/whatsapp/status', (req, res) => {
     res.json(waConnectionStatus);
 });
 
-app.get('/whatsapp/events', (req, res) => {
+apiRouter.get('/whatsapp/events', (req, res) => {
     const handler = (event) => {
         if (!res.headersSent) {
             res.json(event);
@@ -286,7 +287,7 @@ app.get('/whatsapp/events', (req, res) => {
     });
 });
 
-app.get('/whatsapp/chats', (req, res) => {
+apiRouter.get('/whatsapp/chats', (req, res) => {
      const chats = Object.keys(aistudio.wa_chats).map(chatId => {
         const messages = aistudio.wa_chats[chatId];
         const lastMessage = messages[messages.length - 1];
@@ -304,13 +305,13 @@ app.get('/whatsapp/chats', (req, res) => {
     res.json(chats);
 });
 
-app.get('/whatsapp/messages/:chatId', (req, res) => {
+apiRouter.get('/whatsapp/messages/:chatId', (req, res) => {
     const { chatId } = req.params;
     const messages = aistudio.wa_chats[chatId] || [];
     res.json(messages);
 });
 
-app.post('/whatsapp/send-message', async (req, res) => {
+apiRouter.post('/whatsapp/send-message', async (req, res) => {
     if (!sock || !waConnectionStatus.isConnected) {
         return res.status(400).json({ error: "WhatsApp não está conectado." });
     }
@@ -334,6 +335,9 @@ app.post('/whatsapp/send-message', async (req, res) => {
         res.status(500).json({ error: "Falha ao enviar mensagem." });
     }
 });
+
+// Mount the API router
+app.use('/api', apiRouter);
 
 
 // --- CHATBOT IMPLEMENTATION ---
