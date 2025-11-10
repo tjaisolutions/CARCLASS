@@ -1,6 +1,8 @@
 
 
 
+
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -1995,6 +1997,9 @@ const App = () => {
         }
         if (data.updatedAppointment) {
             setAppointments(prev => prev.map(a => a.id === data.updatedAppointment.id ? data.updatedAppointment : a));
+        }
+        if (data.cancelledAppointmentId) {
+            setAppointments(prev => prev.filter(a => a.id !== data.cancelledAppointmentId));
         }
     }, []);
 
