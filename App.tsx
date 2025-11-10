@@ -1007,7 +1007,7 @@ const SettingsView = ({
     services: Service[];
     onSave: (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => void;
     onFileUpload: (files: File[]) => void;
-    catalogFiles: { id: string; file: File }[];
+    catalogFiles: { id: string; file: { name: string, type: string } }[];
     isProcessingFile: boolean;
     onFileDelete: (fileId: string) => void;
     onUserSave: (user: User) => void;
@@ -1171,7 +1171,7 @@ const SettingsView = ({
                     <p className="text-sm text-gray-400 mb-3">Estes arquivos serão processados para atualizar sua lista de serviços. Todos os arquivos serão enviados para os clientes no chat.</p>
                     <input
                         type="file"
-                        accept=".pdf,.jpg,.jpeg"
+                        accept=".pdf,.jpg,.jpeg,.png"
                         ref={fileInputRef}
                         onChange={handleFileChange}
                         className="hidden"
@@ -1952,7 +1952,7 @@ const App = () => {
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     
-    const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: File }[]>([]);
+    const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: { name: string, type: string } }[]>([]);
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
     const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
     const [qrCode, setQrCode] = useState<string | null>(null);
@@ -1981,21 +1981,12 @@ const App = () => {
     
     const handleDataUpdateFromBot = useCallback((data: any) => {
         if (!data) return;
-
-        if (data.newClient) {
-            setClients(prev => [...prev, data.newClient]);
+        // Robust update: If the server sends a full list, replace the local state.
+        if (data.clients) {
+            setClients(data.clients);
         }
-        if (data.updatedClient) {
-            setClients(prev => prev.map(c => c.id === data.updatedClient.id ? data.updatedClient : c));
-        }
-        if (data.newAppointment) {
-            setAppointments(prev => [...prev, data.newAppointment]);
-        }
-        if (data.updatedAppointment) {
-            setAppointments(prev => prev.map(a => a.id === data.updatedAppointment.id ? data.updatedAppointment : a));
-        }
-        if (data.cancelledAppointmentId) {
-            setAppointments(prev => prev.filter(a => a.id !== data.cancelledAppointmentId));
+        if (data.appointments) {
+            setAppointments(data.appointments);
         }
     }, []);
 
@@ -2013,6 +2004,7 @@ const App = () => {
             setClientPlanUsages(data.clientPlanUsages || []);
             setConversationLogs(data.conversationLogs || []);
             setUsers(data.users || []);
+            setCatalogFiles(data.catalogFiles || []);
              if (data.operatingHours) setOperatingHours(data.operatingHours);
             if (data.automatedMessages) setAutomatedMessages(data.automatedMessages);
         } catch (error) {
@@ -2110,16 +2102,53 @@ const App = () => {
 
     const handleFileUpload = useCallback(async (files: File[]) => {
         setIsProcessingFile(true);
-        // ... (implementation is the same)
-        setIsProcessingFile(false);
-    }, []);
+        const formData = new FormData();
+        files.forEach(file => {
+            formData.append('catalogs', file);
+        });
+
+        try {
+            const response = await fetch('/api/upload-catalog', {
+                method: 'POST',
+                body: formData,
+            });
+            if (!response.ok) {
+                throw new Error('Falha no upload do catálogo.');
+            }
+            const updatedData = await response.json();
+            setCatalogFiles(updatedData.catalogFiles || []);
+            setServices(updatedData.services || services);
+            addNotification("Catálogo(s) enviado com sucesso!");
+        } catch (error) {
+            console.error(error);
+            addNotification("Erro ao enviar catálogo.");
+        } finally {
+            setIsProcessingFile(false);
+        }
+    }, [addNotification, services]);
+
 
     const handleFileDelete = useCallback((fileIdToDelete: string) => {
-        if (window.confirm('Tem certeza?')) {
-            setCatalogFiles(prev => prev.filter(f => f.id !== fileIdToDelete));
-            setServices(prev => prev.filter(s => s.sourceFileId !== fileIdToDelete));
+        if (window.confirm('Tem certeza que deseja remover este arquivo?')) {
+            // Optimistic update on frontend
+             setCatalogFiles(prev => prev.filter(f => f.id !== fileIdToDelete));
+
+            // Call server to delete
+            fetch(`/api/delete-catalog/${fileIdToDelete}`, { method: 'DELETE' })
+            .then(res => {
+                if(!res.ok) throw new Error("Server error deleting file");
+                return res.json();
+            }).then(data => {
+                setServices(data.services); // update services if any were removed
+                addNotification("Arquivo removido.");
+            })
+            .catch(err => {
+                console.error("Failed to delete catalog file:", err);
+                addNotification("Erro ao remover o arquivo.");
+                loadData(); // reload to get back to consistent state
+            });
         }
-    }, []);
+    }, [addNotification, loadData]);
 
     const handleStartService = useCallback((id: string) => {
         setAppointments(prevAppointments => {
