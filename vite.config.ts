@@ -8,10 +8,10 @@ const expressApiPlugin = () => ({
     // Dynamically import the Express app from server.mjs
     const { app } = await import('./server.mjs');
     
-    // Use the express app as a middleware.
-    // The express app itself is now responsible for handling the /api prefix,
-    // so it won't interfere with Vite's handling of other routes like the root '/'.
-    server.middlewares.use(app);
+    // Mount the express app as middleware on the '/api' path.
+    // This tells Vite to forward any request starting with '/api' to our Express server.
+    // The Express server will then handle the rest of the path (e.g., '/data').
+    server.middlewares.use('/api', app);
   }
 });
 
