@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
-import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
+import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS, WAChat, WAMessage } from './types';
 
 // --- SVG ICON COMPONENTS ---
 const CalendarDaysIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0h18M-4.5 12h22.5" /></svg>;
@@ -541,28 +541,20 @@ const WhatsAppConnectionStatus = ({ status, message }: { status: 'connected' | '
     );
 };
 
-// Interface for chat objects, now managed locally
-interface WAChat {
-    id: string;
-    name: string;
-    lastMessage: {
-        body: string;
-        timestamp: number;
-    };
-}
-// Interface for message objects
-interface WAMessage {
-    id: { fromMe: boolean; remote: string; };
-    body: string;
-    timestamp: number;
-    isBot?: boolean;
-}
+type WhatsAppViewProps = {
+    currentUser: User; 
+    status: 'connected' | 'disconnected' | 'loading';
+    qrCode: string | null;
+    statusMessage: string;
+    addNotification: (message: string) => void;
+    chats: WAChat[];
+    activeChatId: string | null;
+    setActiveChatId: (id: string | null) => void;
+    messages: WAMessage[];
+    onSendMessage: (chatId: string, message: string) => Promise<void>;
+};
 
-
-const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDataUpdate: (data: any) => void; }) => {
-    const [chats, setChats] = useState<WAChat[]>([]);
-    const [activeChatId, setActiveChatId] = useState<string | null>(null);
-    const [messages, setMessages] = useState<WAMessage[]>([]);
+const WhatsAppView: React.FC<WhatsAppViewProps> = ({ currentUser, status, qrCode, statusMessage, addNotification, chats, activeChatId, setActiveChatId, messages, onSendMessage }) => {
     const [userInput, setUserInput] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const wasConnected = useRef(false);
@@ -570,184 +562,17 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
     const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
 
     useEffect(() => {
-        const fetchInitialStatus = async () => {
-            try {
-                const response = await fetch('/api/whatsapp/status');
-                if (response.ok) {
-                    const data = await response.json();
-                    setStatusMessage(data.message);
-                    setQrCode(data.qrCode || null);
-                    const newStatus = data.isConnected ? 'connected' : (data.qrCode ? 'loading' : 'disconnected');
-                    setStatus(newStatus);
-                    if (data.isConnected) {
-                        wasConnected.current = true;
-                    }
-                }
-            } catch (error) {
-                console.error("Failed to fetch initial WA status:", error);
-                setStatus('disconnected');
-                setStatusMessage('Erro ao obter status do servidor.');
-            }
-        };
-        fetchInitialStatus();
-    }, [setStatus, setQrCode, setStatusMessage]);
-
-    useEffect(() => {
         if (status === 'connected') {
             wasConnected.current = true;
         }
     }, [status]);
-    
-    // Long-polling for real-time events from the server
-    useEffect(() => {
-        if (!currentUser) return;
-
-        let isPolling = true;
-
-        const pollEvents = async () => {
-            while (isPolling) {
-                try {
-                    const response = await fetch('/api/whatsapp/events');
-                    if (response.status === 502) { // Timeout, normal for long-polling
-                        continue;
-                    }
-                    if (response.ok) {
-                        const event = await response.json();
-
-                        if (event.type === 'status_change') {
-                            const { isConnected, message, qrCode } = event.data;
-                            setStatusMessage(message);
-                            setQrCode(qrCode || null);
-                            const newStatus = isConnected ? 'connected' : (qrCode ? 'loading' : 'disconnected');
-                            setStatus(newStatus);
-                        } else if (event.type === 'message') {
-                            const newMessage: WAMessage = event.data;
-                            const chatId = newMessage.id.remote;
-                            addNotification(`Nova mensagem de ${event.senderName || chatId.split('@')[0]}.`);
-                            
-                            if (chatId === activeChatId) {
-                                setMessages(prev => [...prev, newMessage]);
-                            }
-
-                            setChats(prevChats => {
-                                const existingChatIndex = prevChats.findIndex(c => c.id === chatId);
-                                const updatedChat: WAChat = {
-                                    id: chatId,
-                                    name: event.senderName || chatId.split('@')[0],
-                                    lastMessage: {
-                                        body: newMessage.body,
-                                        timestamp: newMessage.timestamp,
-                                    }
-                                };
-                                let newChats = [...prevChats];
-                                if (existingChatIndex > -1) {
-                                    newChats.splice(existingChatIndex, 1);
-                                }
-                                return [updatedChat, ...newChats];
-                            });
-                        } else if (event.type === 'db_change') {
-                            addNotification("Novos dados do chatbot foram sincronizados.");
-                            onDataUpdate(event.data);
-                        }
-                    } else {
-                         await new Promise(resolve => setTimeout(resolve, 5000));
-                    }
-                } catch (error) {
-                    console.error("Long-polling error:", error);
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                }
-            }
-        };
-
-        pollEvents();
-
-        return () => {
-            isPolling = false;
-        };
-    }, [currentUser, activeChatId, setStatus, setQrCode, setStatusMessage, onDataUpdate, addNotification]);
-
-    // Fetch initial chats when connection is established
-    useEffect(() => {
-        const fetchInitialChats = async () => {
-            if (status === 'connected') {
-                 try {
-                     const response = await fetch('/api/whatsapp/chats');
-                     if (response.ok) {
-                         const data = await response.json();
-                         setChats(data);
-                         addNotification("Conversas do WhatsApp sincronizadas.");
-                     }
-                 } catch (error) {
-                     console.error("Failed to fetch initial chats:", error);
-                 }
-            }
-        };
-        fetchInitialChats();
-    }, [status, addNotification]);
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!userInput.trim() || !activeChatId) return;
-
-        const messageContent = userInput;
+        await onSendMessage(activeChatId, userInput);
         setUserInput('');
-        
-        const optimisticMessage: WAMessage = {
-            id: { fromMe: true, remote: activeChatId },
-            body: messageContent,
-            timestamp: Date.now() / 1000,
-            isBot: false,
-        };
-        setMessages(prev => [...prev, optimisticMessage]);
-
-        try {
-            const response = await fetch('/api/whatsapp/send-message', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chatId: activeChatId, message: messageContent }),
-            });
-            if (!response.ok) {
-                throw new Error('Failed to send message');
-            }
-             // Update chat list on send
-            setChats(prevChats => {
-                const chatIndex = prevChats.findIndex(c => c.id === activeChatId);
-                if (chatIndex === -1) return prevChats;
-
-                const chat = { ...prevChats[chatIndex] };
-                chat.lastMessage = { body: messageContent, timestamp: Date.now() / 1000 };
-                
-                const newChats = [...prevChats];
-                newChats.splice(chatIndex, 1);
-                return [chat, ...newChats];
-            });
-        } catch (error) {
-            console.error("Error sending message:", error);
-            addNotification("Erro ao enviar mensagem.");
-            // Revert optimistic update
-            setMessages(prev => prev.filter(m => m !== optimisticMessage));
-        }
     };
-    
-    useEffect(() => {
-         const fetchMessages = async () => {
-             if (activeChatId && status === 'connected') {
-                 try {
-                     const response = await fetch(`/api/whatsapp/messages/${activeChatId}`);
-                     if (response.ok) {
-                         const data = await response.json();
-                         setMessages(data);
-                     }
-                 } catch (error) {
-                     console.error("Failed to fetch messages:", error);
-                     setMessages([]);
-                 }
-             } else {
-                 setMessages([]);
-             }
-         };
-         fetchMessages();
-     }, [activeChatId, status]);
 
     const filteredChats = useMemo(() => {
         return chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp)
@@ -1954,9 +1779,15 @@ const App = () => {
     
     const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: { name: string, type: string } }[]>([]);
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+    
+    // --- WHATSAPP STATE LIFTED UP ---
     const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState('Inicializando...');
+    const [chats, setChats] = useState<WAChat[]>([]);
+    const [messages, setMessages] = useState<WAMessage[]>([]);
+    const [activeChatId, setActiveChatId] = useState<string | null>(null);
+
 
     const addNotification = useCallback((message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
@@ -1979,17 +1810,6 @@ const App = () => {
         }
     }, [addNotification]);
     
-    const handleDataUpdateFromBot = useCallback((data: any) => {
-        if (!data) return;
-        // Robust update: If the server sends a full list, replace the local state.
-        if (data.clients) {
-            setClients(data.clients);
-        }
-        if (data.appointments) {
-            setAppointments(data.appointments);
-        }
-    }, []);
-
     const loadData = useCallback(async () => {
         try {
             const response = await fetch('/api/data');
@@ -2018,6 +1838,161 @@ const App = () => {
     useEffect(() => {
         loadData();
     }, [loadData]);
+
+    // --- GLOBAL EVENT POLLER FOR WHATSAPP ---
+    useEffect(() => {
+        if (!currentUser) return;
+
+        let isPolling = true;
+
+        const pollEvents = async () => {
+            while (isPolling) {
+                try {
+                    const response = await fetch('/api/whatsapp/events');
+                    if (response.status === 502) { continue; } // Timeout, normal
+                    if (response.ok) {
+                        const event = await response.json();
+
+                        switch(event.type) {
+                            case 'status_change': {
+                                const { isConnected, message, qrCode } = event.data;
+                                setStatusMessage(message);
+                                setQrCode(qrCode || null);
+                                const newStatus = isConnected ? 'connected' : (qrCode ? 'loading' : 'disconnected');
+                                setWhatsAppStatus(newStatus);
+                                break;
+                            }
+                            case 'new_conversation': {
+                                addNotification(`Nova conversa com ${event.senderName}.`);
+                                break;
+                            }
+                            case 'message': {
+                                const newMessage: WAMessage = event.data;
+                                const chatId = newMessage.id.remote;
+                                
+                                if (chatId === activeChatId) {
+                                    setMessages(prev => [...prev, newMessage]);
+                                }
+
+                                setChats(prevChats => {
+                                    const existingChatIndex = prevChats.findIndex(c => c.id === chatId);
+                                    const updatedChat: WAChat = {
+                                        id: chatId,
+                                        name: event.senderName || chatId.split('@')[0],
+                                        lastMessage: { body: newMessage.body, timestamp: newMessage.timestamp }
+                                    };
+                                    let newChats = [...prevChats];
+                                    if (existingChatIndex > -1) newChats.splice(existingChatIndex, 1);
+                                    return [updatedChat, ...newChats];
+                                });
+                                break;
+                            }
+                            case 'db_change': {
+                                // Robust sync: Instead of trusting event data, force a full reload.
+                                loadData();
+                                break;
+                            }
+                        }
+                    } else {
+                         await new Promise(resolve => setTimeout(resolve, 5000));
+                    }
+                } catch (error) {
+                    console.error("Long-polling error:", error);
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                }
+            }
+        };
+
+        pollEvents();
+
+        return () => { isPolling = false; };
+    }, [currentUser, activeChatId, addNotification, loadData]);
+
+    // Fetch initial chats when connection is established
+    useEffect(() => {
+        const fetchInitialData = async () => {
+            if (whatsAppStatus === 'connected') {
+                 try {
+                     const [chatsRes, statusRes] = await Promise.all([
+                         fetch('/api/whatsapp/chats'),
+                         fetch('/api/whatsapp/status')
+                     ]);
+                     if (chatsRes.ok) setChats(await chatsRes.json());
+                     if (statusRes.ok) {
+                         const data = await statusRes.json();
+                         setStatusMessage(data.message);
+                         setQrCode(data.qrCode || null);
+                         setWhatsAppStatus(data.isConnected ? 'connected' : 'disconnected');
+                     }
+                 } catch (error) {
+                     console.error("Failed to fetch initial WA data:", error);
+                 }
+            } else {
+                 try {
+                    const response = await fetch('/api/whatsapp/status');
+                    if (response.ok) {
+                        const data = await response.json();
+                        setStatusMessage(data.message);
+                        setQrCode(data.qrCode || null);
+                        setWhatsAppStatus(data.isConnected ? 'connected' : (data.qrCode ? 'loading' : 'disconnected'));
+                    }
+                } catch (error) { console.error("Failed to fetch initial WA status:", error); }
+            }
+        };
+        fetchInitialData();
+    }, [whatsAppStatus]);
+    
+    // Fetch messages for active chat
+    useEffect(() => {
+         const fetchMessages = async () => {
+             if (activeChatId && whatsAppStatus === 'connected') {
+                 try {
+                     const response = await fetch(`/api/whatsapp/messages/${activeChatId}`);
+                     if (response.ok) setMessages(await response.json());
+                 } catch (error) {
+                     console.error("Failed to fetch messages:", error);
+                     setMessages([]);
+                 }
+             } else {
+                 setMessages([]);
+             }
+         };
+         fetchMessages();
+     }, [activeChatId, whatsAppStatus]);
+     
+    const handleSendMessage = useCallback(async (chatId: string, message: string) => {
+        if (!message.trim()) return;
+
+        const optimisticMessage: WAMessage = {
+            id: { fromMe: true, remote: chatId },
+            body: message,
+            timestamp: Date.now() / 1000,
+            isBot: false,
+        };
+        setMessages(prev => [...prev, optimisticMessage]);
+
+        try {
+            const response = await fetch('/api/whatsapp/send-message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chatId, message }),
+            });
+            if (!response.ok) throw new Error('Failed to send message');
+            
+            setChats(prevChats => {
+                const chatIndex = prevChats.findIndex(c => c.id === chatId);
+                if (chatIndex === -1) return prevChats;
+                const chat = { ...prevChats[chatIndex], lastMessage: { body: message, timestamp: Date.now() / 1000 } };
+                const newChats = [...prevChats];
+                newChats.splice(chatIndex, 1);
+                return [chat, ...newChats];
+            });
+        } catch (error) {
+            console.error("Error sending message:", error);
+            addNotification("Erro ao enviar mensagem.");
+            setMessages(prev => prev.filter(m => m !== optimisticMessage));
+        }
+    }, [addNotification]);
 
 
     const handleClientSave = useCallback((clientData: Omit<Client, 'id'> & { id?: string }) => {
@@ -2244,7 +2219,7 @@ const App = () => {
             case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
             case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
             case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} onDataUpdate={handleDataUpdateFromBot} />;
+            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} addNotification={addNotification} chats={chats} activeChatId={activeChatId} setActiveChatId={setActiveChatId} messages={messages} onSendMessage={handleSendMessage} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
             case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
