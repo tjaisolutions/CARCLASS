@@ -121,3 +121,22 @@ export interface User {
     [tabId: string]: boolean;
   };
 }
+
+// --- TIPOS PARA WHATSAPP ---
+
+// Interface for chat objects, now managed locally
+export interface WAChat {
+  id: string;
+  name: string;
+  lastMessage: {
+    body: string;
+    timestamp: number;
+  };
+}
+// Interface for message objects
+export interface WAMessage {
+  id: { fromMe: boolean; remote: string; };
+  body: string;
+  timestamp: number;
+  isBot?: boolean;
+}
