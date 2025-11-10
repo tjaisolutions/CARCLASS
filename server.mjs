@@ -64,29 +64,59 @@ const getInitialState = () => ({
 
 
 const loadDb = () => {
+    let loadedData = {};
     if (fs.existsSync(DB_FILE_PATH)) {
         try {
             console.log('[Persistence] Carregando dados do arquivo...');
-            const data = fs.readFileSync(DB_FILE_PATH, 'utf-8');
-            if (data.trim() === '') {
-                 console.warn('[Persistence] O arquivo de dados estava vazio. Iniciando com estado padrão.');
-                 aistudio = getInitialState();
-            } else {
-                aistudio = { ...getInitialState(), ...JSON.parse(data) };
+            const fileContent = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+            if (fileContent.trim() !== '') {
+                loadedData = JSON.parse(fileContent);
             }
         } catch (error) {
             console.error('[Persistence] ERRO CRÍTICO ao ler ou analisar db.json:', error);
             const backupPath = path.join(DATA_DIR, `db.corrupted.${Date.now()}.json`);
-            fs.copyFileSync(DB_FILE_PATH, backupPath);
-            console.warn(`[Persistence] Backup do arquivo corrompido salvo em: ${backupPath}`);
-            aistudio = getInitialState();
+            if (fs.existsSync(DB_FILE_PATH)) {
+                fs.copyFileSync(DB_FILE_PATH, backupPath);
+                console.warn(`[Persistence] Backup do arquivo corrompido salvo em: ${backupPath}`);
+            }
+            loadedData = {}; // Start fresh on corruption
         }
-    } else {
-        console.log('[Persistence] Nenhum arquivo de dados encontrado, iniciando com estado padrão.');
-        aistudio = getInitialState();
     }
-     if (!aistudio.wa_chats) aistudio.wa_chats = {};
-     if (!aistudio.chatbot_sessions) aistudio.chatbot_sessions = {};
+
+    // Initialize with default state, then merge loaded data over it.
+    aistudio = { ...getInitialState(), ...loadedData };
+
+    // --- DATA SANITIZATION & RECOVERY ---
+    // This routine ensures the primary 'owner' user can always log in, even if the
+    // db.json file becomes corrupted or the user is deleted.
+    const ownerTemplate = getInitialState().users[0];
+    
+    // Ensure 'users' is an array.
+    if (!aistudio.users || !Array.isArray(aistudio.users)) {
+        aistudio.users = [];
+    }
+
+    const ownerIndex = aistudio.users.findIndex(u => u.id === 'user-owner');
+
+    if (ownerIndex !== -1) {
+        // If owner exists, forcibly restore critical credentials from the template.
+        // This fixes corrupted passwords or permissions.
+        aistudio.users[ownerIndex] = {
+            ...aistudio.users[ownerIndex], // Keep existing data like a changed username
+            password: ownerTemplate.password,
+            role: ownerTemplate.role,
+            permissions: ownerTemplate.permissions,
+        };
+        console.log('[Persistence] Usuário "owner" verificado e restaurado.');
+    } else {
+        // If owner does not exist at all, add it back.
+        aistudio.users.unshift(ownerTemplate);
+        console.log('[Persistence] Usuário "owner" não encontrado. Adicionando ao sistema.');
+    }
+
+    // Ensure other critical properties exist
+    if (!aistudio.wa_chats) aistudio.wa_chats = {};
+    if (!aistudio.chatbot_sessions) aistudio.chatbot_sessions = {};
 };
 
 const saveDb = () => {
