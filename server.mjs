@@ -16,16 +16,24 @@ import qrcode from 'qrcode';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.RENDER_DISK_PATH || path.join(__dirname, 'data');
 const DIST_DIR = path.join(__dirname, 'dist');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+
 
 if (!fs.existsSync(DATA_DIR)) {
   console.log(`[Persistence] Criando diretório de dados em: ${DATA_DIR}`);
   fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(UPLOADS_DIR)) {
+  console.log(`[Persistence] Criando diretório de uploads em: ${UPLOADS_DIR}`);
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 
 export const app = express();
 const port = process.env.PORT || 3001;
 const apiRouter = express.Router();
+const upload = multer({ dest: UPLOADS_DIR });
+
 
 // --- GERENCIAMENTO DE ESTADO SIMPLIFICADO ---
 const DB_FILE_PATH = path.join(DATA_DIR, 'db.json');
@@ -118,6 +126,8 @@ const loadDb = () => {
     // Ensure other critical properties exist
     if (!aistudio.wa_chats) aistudio.wa_chats = {};
     if (!aistudio.chatbot_sessions) aistudio.chatbot_sessions = {};
+    if (!aistudio.catalogFiles) aistudio.catalogFiles = [];
+
 };
 
 const saveDb = () => {
@@ -133,6 +143,8 @@ loadDb();
 
 // --- MIDDLEWARE ---
 app.use(express.json());
+// Serve static files from the uploads directory
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 
 // --- API ROUTES ---
@@ -149,6 +161,48 @@ apiRouter.post('/data', (req, res) => {
     saveDb();
     res.status(200).json({ message: 'Dados salvos com sucesso!' });
 });
+
+apiRouter.post('/upload-catalog', upload.array('catalogs'), (req, res) => {
+    if (!req.files) {
+        return res.status(400).send('Nenhum arquivo enviado.');
+    }
+    const newFiles = req.files.map(file => ({
+        id: file.filename,
+        path: file.path,
+        file: {
+            name: file.originalname,
+            type: file.mimetype,
+        }
+    }));
+    aistudio.catalogFiles.push(...newFiles);
+    saveDb();
+
+    // Respond with the updated list for frontend sync
+    res.status(200).json({
+        catalogFiles: aistudio.catalogFiles,
+        services: aistudio.services, // Also send services in case they are derived from this
+    });
+});
+
+apiRouter.delete('/delete-catalog/:fileId', (req, res) => {
+    const { fileId } = req.params;
+    const fileIndex = aistudio.catalogFiles.findIndex(f => f.id === fileId);
+
+    if (fileIndex > -1) {
+        const fileToDelete = aistudio.catalogFiles[fileIndex];
+        // Delete from filesystem
+        if (fs.existsSync(fileToDelete.path)) {
+            fs.unlinkSync(fileToDelete.path);
+        }
+        // Remove from DB
+        aistudio.catalogFiles.splice(fileIndex, 1);
+        saveDb();
+        res.status(200).json({ services: aistudio.services }); // Send back potentially updated services
+    } else {
+        res.status(404).send('Arquivo não encontrado.');
+    }
+});
+
 
 // --- GEMINI API SETUP ---
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -347,21 +401,20 @@ const normalizeCPF = (cpf) => cpf.replace(/[^\d]/g, '');
 const findClientByCpf = (cpf) => aistudio.clients.find(c => normalizeCPF(c.cpf) === normalizeCPF(cpf));
 const getClientUpcomingAppointment = (clientId) => {
     const today = new Date().toISOString().split('T')[0];
-    return aistudio.appointments.find(a => a.clientId === clientId && a.date >= today && a.status !== 'Finalizado');
+    return aistudio.appointments
+        .filter(a => a.clientId === clientId && a.date >= today && a.status !== 'Finalizado')
+        .sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time))[0];
 };
 
 const parseDateTime = (text) => {
     const now = new Date();
-    const normalizedText = normalizeText(text);
+    const normalizedText = normalizeText(text.replace(/ as /g, ' '));
 
-    const monthMap = {
-        janeiro: 0, fevereiro: 1, marco: 2, abril: 3, maio: 4, junho: 5,
-        julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11
-    };
+    const monthMap = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11, janeiro: 0, fevereiro: 1, marco: 2, abril: 3, maio: 4, junho: 5, julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11 };
+    const weekdayMap = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
 
     let day, month, year = now.getFullYear(), hour, minute = 0;
 
-    // Parse time: "17h", "17hrs", "17:30"
     const timeMatch = normalizedText.match(/(\d{1,2})[:h](\d{2})?/);
     if (timeMatch) {
         hour = parseInt(timeMatch[1], 10);
@@ -370,44 +423,50 @@ const parseDateTime = (text) => {
         return null; // Time is mandatory
     }
 
-    // Parse day and month: "13 de novembro"
     const dayMonthMatch = normalizedText.match(/(\d{1,2})\s+de\s+([a-z]+)/);
+    const dayOnlyMatch = normalizedText.match(/dia\s+(\d{1,2})/);
+    const weekdayMatch = normalizedText.match(/(seg|ter|qua|qui|sex|sab|dom)/);
+
     if (dayMonthMatch) {
         day = parseInt(dayMonthMatch[1], 10);
-        const monthStr = dayMonthMatch[2];
-        if (monthMap.hasOwnProperty(monthStr)) {
-            month = monthMap[monthStr];
-        } else {
-            return null; // Invalid month
-        }
+        const monthStr = dayMonthMatch[2].substring(0, 3);
+        if (monthMap.hasOwnProperty(monthStr)) month = monthMap[monthStr];
+    } else if (dayOnlyMatch) {
+        day = parseInt(dayOnlyMatch[1], 10);
+        month = now.getDate() > day ? now.getMonth() + 1 : now.getMonth();
+    } else if (weekdayMatch) {
+        const targetWeekday = weekdayMap[weekdayMatch[1]];
+        const tempDate = new Date();
+        tempDate.setDate(tempDate.getDate() + (targetWeekday + 7 - tempDate.getDay()) % 7);
+        day = tempDate.getDate();
+        month = tempDate.getMonth();
+        year = tempDate.getFullYear();
     } else {
-        return null; // For now, we require an explicit day and month
+        return null; // Day/Month context is missing
     }
 
-    // Heuristic for year: if the parsed date is in the past for the current year, assume next year.
-    const targetDateForYearCheck = new Date(year, month, day);
-    if (targetDateForYearCheck < now && targetDateForYearCheck.toDateString() !== now.toDateString()) {
-        year++; 
+    if (day === undefined || month === undefined) return null;
+    
+    const targetDate = new Date(year, month, day);
+    if (targetDate < now && targetDate.toDateString() !== now.toDateString()) {
+        year++;
     }
 
-    if (day !== undefined && month !== undefined && hour !== undefined) {
-        const dateObj = new Date(year, month, day, hour, minute);
-        // Ensure the date object is valid
-        if (isNaN(dateObj.getTime())) return null;
+    const dateObj = new Date(year, month, day, hour, minute);
+    if (isNaN(dateObj.getTime())) return null;
 
-        const date = dateObj.toISOString().split('T')[0];
-        const time = dateObj.toTimeString().substring(0, 5);
-        return { date, time };
-    }
-
-    return null;
-}
+    return {
+        date: dateObj.toISOString().split('T')[0],
+        time: dateObj.toTimeString().substring(0, 5)
+    };
+};
 
 const isSlotAvailable = (dateString, timeString) => {
     const { operatingHours, appointments } = aistudio;
-    const targetDate = new Date(`${dateString}T00:00:00Z`); // Use Z for UTC to avoid timezone issues with getDay()
-    const dayOfWeek = targetDate.getUTCDay();
+    const targetDate = new Date(`${dateString}T00:00:00`); 
+    const dayOfWeek = targetDate.getDay();
 
+    // Note: JS Date getDay() is Sun=0, Sat=6. Our operatingHours is the same.
     if (!operatingHours.daysOpen.includes(dayOfWeek)) return false;
     if (!operatingHours.availableTimes.includes(timeString)) return false;
 
@@ -418,10 +477,10 @@ const isSlotAvailable = (dateString, timeString) => {
 const getAvailableSlots = () => {
     const { operatingHours, appointments } = aistudio;
     let availableSlotsMessage = "Estes são os nossos próximos dias e horários disponíveis:\n\n";
-    let slotsFound = 0;
+    let daysFound = 0;
     const distinctDays = new Set();
 
-    for (let i = 0; i < 14 && slotsFound < 5; i++) {
+    for (let i = 0; i < 14 && daysFound < 5; i++) {
         const day = new Date();
         day.setDate(day.getDate() + i);
         const dayOfWeek = day.getDay();
@@ -438,18 +497,22 @@ const getAvailableSlots = () => {
             if (availableForDay.length > 0) {
                 const dayLabel = day.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
                 availableSlotsMessage += `*${dayLabel}*:\n${availableForDay.join('h, ')}h\n\n`;
-                slotsFound++;
+                daysFound++;
                 distinctDays.add(dateString);
             }
         }
     }
-    return slotsFound > 0 ? availableSlotsMessage : "Desculpe, não temos horários disponíveis nos próximos 14 dias. Por favor, entre em contato para verificar a disponibilidade.";
+    return daysFound > 0 ? availableSlotsMessage : "Desculpe, não temos horários disponíveis nos próximos 14 dias. Por favor, entre em contato para verificar a disponibilidade.";
 };
 
 const handleBotLogic = async (senderJid, message, senderName) => {
-    const session = aistudio.chatbot_sessions[senderJid] || { state: 'GREETING' };
+    let session = aistudio.chatbot_sessions[senderJid] || { state: 'GREETING' };
     const normalizedMessage = normalizeText(message);
     const clientNumber = senderJid.split('@')[0];
+    
+    if (session.state === 'CONVERSATION_ENDED' && message) {
+        session = { state: 'GREETING' };
+    }
 
     const sendBotMessage = async (text) => {
         await sendMessageWTyping(senderJid, text);
@@ -462,6 +525,17 @@ const handleBotLogic = async (senderJid, message, senderName) => {
     const resetSession = () => {
         delete aistudio.chatbot_sessions[senderJid];
     };
+    
+    // Sends the complete, updated data to the frontend for robust sync
+    const notifyFrontendOfDbChange = () => {
+        waEvents.emit('event', { 
+            type: 'db_change', 
+            data: { 
+                clients: aistudio.clients, 
+                appointments: aistudio.appointments 
+            } 
+        });
+    }
     
     const showSummaryAndConfirm = async () => {
         const { serviceId, carId, date, time, protections } = session;
@@ -486,7 +560,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
 
     switch (session.state) {
         case 'GREETING':
-            await sendBotMessage(`Olá, bem-vindo(a) à CAR CLASS! Para começarmos, você já é nosso cliente? (Responda com *Sim* ou *Não*)`);
+            await sendBotMessage(`Olá! Sou o assistente virtual da CAR CLASS. Para começarmos, você já é nosso cliente? (Responda com *Sim* ou *Não*)`);
             session.state = 'AWAITING_IS_CLIENT_RESPONSE';
             break;
 
@@ -496,7 +570,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 session.state = 'VALIDATING_CPF';
                 session.cpfRetryCount = 0;
             } else if (normalizedMessage.includes('nao')) {
-                await sendBotMessage("Vamos realizar seu cadastro. Por favor, digite seu nome completo.");
+                await sendBotMessage("Seja bem-vindo(a)! Vamos realizar seu cadastro. Por favor, digite seu nome completo.");
                 session.state = 'AWAITING_NEW_CLIENT_NAME';
             } else {
                 await sendBotMessage("Desculpe, não entendi. Por favor, responda com *Sim* ou *Não*.");
@@ -515,7 +589,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                     await sendBotMessage(`Verifiquei aqui e você já tem um agendamento para ${appointmentDate}. Você deseja *alterar*, *cancelar* este agendamento ou *prosseguir* com um novo?`);
                     session.state = 'AWAITING_EXISTING_APPOINTMENT_ACTION';
                 } else {
-                    await sendBotMessage("Deseja ver a lista de serviços ou escolher o serviço no local?");
+                    await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
                     session.state = 'CHOOSE_SERVICE_OPTION';
                 }
             } else {
@@ -524,7 +598,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                     await sendBotMessage("CPF não encontrado. Por favor, tente digitar novamente.");
                 } else {
                     await sendBotMessage("Ainda não localizei seu CPF. Vamos fazer um novo cadastro para você. Qual o seu nome completo?");
-                    session.state = 'AWAITING_NEW_CLIENT_NAME_AFTER_FAIL';
+                    session.state = 'AWAITING_NEW_CLIENT_NAME';
                 }
             }
             break;
@@ -534,16 +608,15 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 const appointmentId = session.existingAppointmentId;
                 aistudio.appointments = aistudio.appointments.filter(a => a.id !== appointmentId);
                 await sendBotMessage("Seu agendamento foi cancelado com sucesso. O horário agora está disponível novamente. Se precisar de algo mais, é só chamar!");
-                waEvents.emit('event', { type: 'db_change', data: { cancelledAppointmentId: appointmentId } });
+                notifyFrontendOfDbChange();
                 resetSession();
             } else if (normalizedMessage.includes('alterar')) {
                 const appointment = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
                 session.serviceId = appointment.serviceIds[0]; 
-                session.carId = appointment.carId;
                 await sendBotMessage("Ok, vamos alterar. " + getAvailableSlots());
-                session.state = 'AWAITING_DATETIME_CHOICE';
+                session.state = 'AWAITING_DATETIME_FOR_CHANGE';
             } else if (normalizedMessage.includes('prosseguir')) {
-                await sendBotMessage("Certo! Deseja ver a lista de serviços ou escolher o serviço no local?");
+                await sendBotMessage("Certo! Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
                 session.state = 'CHOOSE_SERVICE_OPTION';
             } else {
                 await sendBotMessage("Por favor, responda com *alterar*, *cancelar* ou *prosseguir*.");
@@ -551,7 +624,6 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             break;
 
         case 'AWAITING_NEW_CLIENT_NAME':
-        case 'AWAITING_NEW_CLIENT_NAME_AFTER_FAIL':
             session.newClientName = message;
             await sendBotMessage("Obrigado. Agora, por favor, digite seu CPF.");
             session.state = 'AWAITING_NEW_CLIENT_CPF';
@@ -562,22 +634,33 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             if (existingClient) {
                 await sendBotMessage("Este CPF já está cadastrado em nome de *" + existingClient.name + "*. Vamos prosseguir com este cadastro.");
                 session.clientId = existingClient.id;
-                await sendBotMessage("Deseja ver a lista de serviços ou escolher o serviço no local?");
-                session.state = 'CHOOSE_SERVICE_OPTION';
             } else {
                 const newClient = { id: `c${Date.now()}`, name: session.newClientName, cpf: message, whatsapp: clientNumber, cars: [] };
                 aistudio.clients.push(newClient);
                 session.clientId = newClient.id;
-                waEvents.emit('event', { type: 'db_change', data: { newClient } });
-                await sendBotMessage("Cadastro concluído com sucesso! Deseja ver a lista de serviços ou escolher o serviço no local?");
-                session.state = 'CHOOSE_SERVICE_OPTION';
+                await sendBotMessage("Cadastro concluído com sucesso!");
+                notifyFrontendOfDbChange();
             }
+            await sendBotMessage("Você deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+            session.state = 'CHOOSE_SERVICE_OPTION';
             break;
 
         case 'CHOOSE_SERVICE_OPTION':
-            const serviceList = aistudio.services.map(s => `*- ${s.name}*`).join('\n');
             if (normalizedMessage.includes('lista') || normalizedMessage.includes('ver')) {
-                await sendBotMessage(`Claro! Aqui estão nossos serviços:\n\n${serviceList}\n\nQual deles você deseja?`);
+                if (aistudio.catalogFiles && aistudio.catalogFiles.length > 0) {
+                    await sendBotMessage("Certo! Enviando nosso catálogo de serviços para você:");
+                     for (const file of aistudio.catalogFiles) {
+                         await sock.sendMessage(senderJid, {
+                             document: { url: file.path },
+                             mimetype: file.file.type,
+                             fileName: file.file.name
+                         });
+                     }
+                    await sendBotMessage("Qual dos serviços acima você deseja agendar?");
+                } else {
+                    const serviceList = aistudio.services.map(s => `*- ${s.name}*`).join('\n');
+                    await sendBotMessage(`Claro! Aqui estão nossos serviços:\n\n${serviceList}\n\nQual deles você deseja?`);
+                }
                 session.state = 'AWAITING_SERVICE_CHOICE';
             } else if (normalizedMessage.includes('local') || normalizedMessage.includes('escolher')) {
                 session.serviceId = 'on-site';
@@ -600,16 +683,32 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             break;
             
         case 'AWAITING_DATETIME_CHOICE':
+        case 'AWAITING_DATETIME_FOR_CHANGE':
             const parsedDateTime = parseDateTime(message);
             if (parsedDateTime && isSlotAvailable(parsedDateTime.date, parsedDateTime.time)) {
                 session.date = parsedDateTime.date;
                 session.time = parsedDateTime.time;
                 const confirmationDate = new Date(`${parsedDateTime.date}T${parsedDateTime.time}`);
                 const formattedDate = confirmationDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
-                await sendBotMessage(`Ok! Horário pré-agendado para ${formattedDate} às ${parsedDateTime.time}. Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)`);
-                session.state = 'AWAITING_PROTECTION_RESPONSE';
+                await sendBotMessage(`Ok! Horário pré-agendado para ${formattedDate} às ${parsedDateTime.time}h.`);
+                
+                const clientForVehicleCheck = aistudio.clients.find(c => c.id === session.clientId);
+
+                if (session.state === 'AWAITING_DATETIME_FOR_CHANGE') {
+                     if (clientForVehicleCheck.cars && clientForVehicleCheck.cars.length > 0) {
+                         const carToConfirm = clientForVehicleCheck.cars.find(c => c.id === aistudio.appointments.find(a => a.id === session.existingAppointmentId).carId);
+                         await sendBotMessage(`O serviço será no seu *${carToConfirm.model} (${carToConfirm.plate})*? (*Sim* ou *Não*)`);
+                         session.state = 'CONFIRM_EXISTING_VEHICLE_FOR_CHANGE';
+                     } else { // Should not happen if appointment existed, but as a fallback
+                          await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
+                          session.state = 'AWAITING_PROTECTION_RESPONSE';
+                     }
+                } else {
+                     await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
+                     session.state = 'AWAITING_PROTECTION_RESPONSE';
+                }
             } else {
-                await sendBotMessage("Desculpe, não entendi a data e hora ou este horário não está disponível. Por favor, escolha um dos horários da lista ou digite no formato '13 de novembro às 17h'.");
+                await sendBotMessage("Desculpe, não entendi a data e hora ou este horário não está disponível. Por favor, escolha um dos horários da lista ou digite, por exemplo: 'terça as 10h' ou 'dia 22 as 15h'.");
             }
             break;
             
@@ -674,6 +773,18 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                  session.state = 'AWAITING_NEW_VEHICLE';
              }
              break;
+        
+        case 'CONFIRM_EXISTING_VEHICLE_FOR_CHANGE':
+             const clientToConfirmChange = aistudio.clients.find(c => c.id === session.clientId);
+             const appointmentToChange = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
+             if (normalizedMessage.includes('sim')) {
+                 session.carId = appointmentToChange.carId;
+                 await showSummaryAndConfirm();
+             } else {
+                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.");
+                 session.state = 'AWAITING_NEW_VEHICLE';
+             }
+             break;
 
         case 'CHOOSE_AMONG_VEHICLES':
             const clientToChoose = aistudio.clients.find(c => c.id === session.clientId);
@@ -700,7 +811,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             if (clientIndex !== -1) {
                 aistudio.clients[clientIndex].cars.push(newCar);
                 session.carId = newCar.id;
-                waEvents.emit('event', { type: 'db_change', data: { updatedClient: aistudio.clients[clientIndex] } });
+                notifyFrontendOfDbChange();
                 await sendBotMessage(`Veículo *${model} (${plate})* cadastrado!`);
                 await showSummaryAndConfirm();
             }
@@ -716,7 +827,6 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 }
 
                 let appointmentData = {
-                    id: session.existingAppointmentId || `a${Date.now()}`,
                     clientId: session.clientId,
                     carId: session.carId,
                     serviceIds: session.serviceId === 'on-site' ? [] : [session.serviceId],
@@ -727,14 +837,12 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 
                 if (session.existingAppointmentId) {
                     aistudio.appointments = aistudio.appointments.map(a => a.id === session.existingAppointmentId ? { ...a, ...appointmentData } : a);
-                    waEvents.emit('event', { type: 'db_change', data: { updatedAppointment: appointmentData } });
                 } else {
-                    aistudio.appointments.push(appointmentData);
-                    waEvents.emit('event', { type: 'db_change', data: { newAppointment: appointmentData } });
+                    aistudio.appointments.push({ ...appointmentData, id: `a${Date.now()}`});
                 }
-                
+                notifyFrontendOfDbChange();
                 await sendBotMessage("Agendamento confirmado com sucesso! Muito obrigado por escolher a CAR CLASS. Até breve!");
-                resetSession();
+                session.state = 'CONVERSATION_ENDED';
 
             } else if (normalizedMessage.includes('alterar')) {
                 await sendBotMessage("O que você deseja alterar? (*Serviço*, *Veículo*, *Data/Hora* ou *Proteção*)");
@@ -746,28 +854,21 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             
         case 'AWAITING_ALTERATION_CHOICE':
              if (normalizedMessage.includes('servico')) {
-                const serviceList = aistudio.services.map(s => `*- ${s.name}*`).join('\n');
-                await sendBotMessage(`Ok, vamos alterar o serviço. Qual você deseja?\n\n${serviceList}`);
-                session.state = 'AWAITING_SERVICE_CHOICE';
-             } else if (normalizedMessage.includes('veiculo')) {
+                session.state = 'CHOOSE_SERVICE_OPTION';
+                await sendBotMessage("Ok, vamos alterar o serviço. Deseja ver a lista ou escolher no local?");
+             } else if (normalizedMessage.includes('veiculo') || normalizedMessage.includes('protecao')) {
                  session.state = 'AWAITING_PROTECTION_RESPONSE'; // Restart from vehicle/protection step
                  await sendBotMessage("Vamos alterar o veículo. Ele possui alguma proteção? (*Sim* ou *Não*)");
              } else if (normalizedMessage.includes('data') || normalizedMessage.includes('hora')) {
                  await sendBotMessage("Ok, vamos alterar a data/hora. " + getAvailableSlots());
                  session.state = 'AWAITING_DATETIME_CHOICE';
-             } else if (normalizedMessage.includes('protecao')) {
-                 await sendBotMessage("Vamos alterar a informação de proteção. Seu veículo possui alguma? (*Sim* ou *Não*)");
-                 session.state = 'AWAITING_PROTECTION_RESPONSE';
              } else {
                  await sendBotMessage("Não entendi. Por favor, escolha entre *Serviço*, *Veículo*, *Data/Hora* ou *Proteção*.");
              }
              break;
     }
 
-    // Save session only if it hasn't been reset
-    if (aistudio.chatbot_sessions[senderJid]) {
-        aistudio.chatbot_sessions[senderJid] = session;
-    }
+    aistudio.chatbot_sessions[senderJid] = session;
     saveDb();
 };
 
