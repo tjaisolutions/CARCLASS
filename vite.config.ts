@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 // Plugin to use our Express server as middleware in development
 const expressApiPlugin = () => ({
   name: 'express-api-plugin',
+  apply: 'serve', // Ensure this plugin only runs during development (vite serve), NOT build
   configureServer: async (server) => {
     // Dynamically import the Express app from server.mjs
     const { app } = await import('./server.mjs');
