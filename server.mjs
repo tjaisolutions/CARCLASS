@@ -15,7 +15,8 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 // --- MIDDLEWARE ---
-app.use(express.json());
+// Fix: Cast middleware to any to avoid type mismatch error
+app.use(/** @type {any} */ (express.json()));
 const upload = multer({ storage: multer.memoryStorage() });
 
 // --- CONFIGURAÇÃO DA API GEMINI ---
@@ -27,11 +28,14 @@ const ai = new GoogleGenAI({ apiKey });
 
 // --- CONFIGURAÇÃO MONGODB ---
 // URI fornecida pelo usuário
-const DEFAULT_MONGO_URI = "mongodb+srv://CARCLASS:carclass123@carclass.yobbg19.mongodb.net/?appName=CARCLASS";
-const mongoUri = process.env.MONGODB_URI || DEFAULT_MONGO_URI;
+const MONGO_URI_PROVIDED = "mongodb+srv://CARCLASS:carclass123@carclass.yobbg19.mongodb.net/?appName=CARCLASS";
+const mongoUri = process.env.MONGODB_URI || MONGO_URI_PROVIDED;
 
 let mongoClient;
 let mongoCollection;
+
+// Fila de notificações para o frontend (Polling simples)
+let frontendNotifications = [];
 
 if (mongoUri) {
     try {
@@ -148,7 +152,7 @@ async function connectToWhatsApp() {
     
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
+        // printQRInTerminal: true, // DEPRECATED: Removed to clean logs
         logger: pino({ level: 'silent' }),
         browser: ["CarClass Mobile", "Chrome", "1.0.0"],
         connectTimeoutMs: 60000, 
@@ -162,15 +166,16 @@ async function connectToWhatsApp() {
         if (qr) {
             whatsappSession.qrCode = qr;
             whatsappSession.status = 'loading';
-            console.log("Novo QR Code gerado. Aguardando leitura...");
+            console.log("Novo QR Code gerado.");
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            // Fix: Safely access output property using bracket notation to avoid TS error on 'Error' type
+            const shouldReconnect = (lastDisconnect?.error)?.['output']?.statusCode !== DisconnectReason.loggedOut;
             console.log('Conexão fechada. Reconectar?', shouldReconnect);
             
-            // Se foi logout (desconectou pelo celular), limpamos o banco
-            if ((lastDisconnect?.error)?.output?.statusCode === DisconnectReason.loggedOut) {
+            // Fix: Safely access output property using bracket notation
+            if ((lastDisconnect?.error)?.['output']?.statusCode === DisconnectReason.loggedOut) {
                 whatsappSession.status = 'disconnected';
                 whatsappSession.qrCode = null;
                 if (mongoCollection) {
@@ -178,12 +183,15 @@ async function connectToWhatsApp() {
                     console.log("Sessão limpa do banco após logout.");
                 }
             } else {
-                // Se caiu a net, tenta reconectar
                  whatsappSession.status = 'disconnected'; 
             }
 
             if (shouldReconnect) {
-                connectToWhatsApp();
+                // Adiciona delay para evitar loop infinito de reconexão
+                console.log("Tentando reconectar em 3 segundos...");
+                setTimeout(() => {
+                    connectToWhatsApp();
+                }, 3000);
             }
         } else if (connection === 'open') {
             console.log('Conexão WhatsApp ESTABELECIDA!');
@@ -194,43 +202,60 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
     
-    // Monitoramento simples de mensagens para debug
+    // Monitoramento de novas conversas para notificação
     sock.ev.on('messages.upsert', async m => {
         if(m.type === 'notify') {
-            // Aqui você pode implementar lógica futura para enviar mensagens reais para o frontend
-            // Por enquanto, o frontend usa simulação lógica, mas a conexão é real.
-            // console.log('Msg recebida:', m.messages[0]);
+            for (const msg of m.messages) {
+                if (!msg.key.fromMe && m.type === 'notify') {
+                    const sender = msg.pushName || msg.key.remoteJid.split('@')[0];
+                    // Adiciona notificação na fila para o frontend consumir
+                    frontendNotifications.push({
+                        type: 'new_message',
+                        text: `Nova mensagem de ${sender}`,
+                        timestamp: new Date()
+                    });
+                }
+            }
         }
     });
 }
 
-// Inicializa conexão se já tiver credenciais salvas
+// Inicializa conexão se já tiver credenciais salvas no banco
 if (mongoCollection) {
-    // Pequeno delay para garantir conexão com banco
+    // Aumenta o tempo inicial para garantir que o banco esteja pronto
     setTimeout(() => {
         connectToWhatsApp();
-    }, 2000);
+    }, 3000);
 }
 
 
 // --- ROTAS DA API WHATSAPP ---
 
-// Endpoint para iniciar/reiniciar a sessão manualmente
 app.post('/api/whatsapp/start', async (req, res) => {
     if (whatsappSession.status === 'connected') {
-        return res.json({ status: 'connected', message: 'Já conectado' });
+        // Fix: Do not return the response object to match RequestHandler return type
+        res.json({ status: 'connected', message: 'Já conectado' });
+        return;
     }
-    
-    await connectToWhatsApp();
+    // Força reinício se estiver travado, mas verifica se já não está conectando
+    if (whatsappSession.status !== 'loading') {
+        await connectToWhatsApp();
+    }
     res.json({ status: 'loading', message: 'Iniciando conexão...' });
 });
 
-// Endpoint para polling de status e QR Code
 app.get('/api/whatsapp/status', (req, res) => {
     res.json({ 
         status: whatsappSession.status, 
         qrCode: whatsappSession.qrCode 
     });
+});
+
+// Endpoint para o frontend buscar notificações do sistema (polling)
+app.get('/api/notifications', (req, res) => {
+    const notifs = [...frontendNotifications];
+    frontendNotifications = []; // Limpa a fila após entregar
+    res.json(notifs);
 });
 
 
@@ -296,7 +321,9 @@ Com base na mensagem, responda APENAS com um objeto JSON válido com este format
 app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) => {
   const file = req.file;
   if (!file) {
-    return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    // Fix: Do not return the response object
+    res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    return;
   }
 
   const base64File = file.buffer.toString('base64');
@@ -357,5 +384,5 @@ app.get('*', (req, res) => {
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 app.listen(port, () => {
-  console.log(`Servidor unificado (Frontend + Backend) rodando em http://localhost:${port}`);
+  console.log(`Servidor unificado rodando em http://localhost:${port}`);
 });
