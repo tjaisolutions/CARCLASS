@@ -1,388 +1,914 @@
+// Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
-import { makeWASocket, DisconnectReason, BufferJSON, initAuthCreds, proto } from '@whiskeysockets/baileys';
-import { MongoClient } from 'mongodb';
+import mongoose from 'mongoose';
+import { EventEmitter } from 'events';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
+import qrcode from 'qrcode';
+
 
 // --- SETUP ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = process.env.RENDER_DISK_PATH || path.join(__dirname, 'data');
+const DIST_DIR = path.join(__dirname, 'dist');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 
-const app = express();
+
+if (!fs.existsSync(DATA_DIR)) {
+  console.log(`[Persistence] Criando diretório de dados em: ${DATA_DIR}`);
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(UPLOADS_DIR)) {
+  console.log(`[Persistence] Criando diretório de uploads em: ${UPLOADS_DIR}`);
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+
+export const app = express();
 const port = process.env.PORT || 3001;
+const apiRouter = express.Router();
+const upload = multer({ dest: UPLOADS_DIR });
 
-// --- MIDDLEWARE ---
-// Fix: Cast middleware to any to avoid type mismatch error
-app.use(/** @type {any} */ (express.json()));
-const upload = multer({ storage: multer.memoryStorage() });
 
-// --- CONFIGURAÇÃO DA API GEMINI ---
-const apiKey = process.env.API_KEY;
-if (!apiKey) {
-  console.error("ERRO: A variável de ambiente API_KEY não foi definida no servidor.");
-}
-const ai = new GoogleGenAI({ apiKey });
+// --- GERENCIAMENTO DE ESTADO SIMPLIFICADO ---
+const DB_FILE_PATH = path.join(DATA_DIR, 'db.json');
+let aistudio;
 
-// --- CONFIGURAÇÃO MONGODB ---
-// URI fornecida pelo usuário
-const MONGO_URI_PROVIDED = "mongodb+srv://CARCLASS:carclass123@carclass.yobbg19.mongodb.net/?appName=CARCLASS";
-const mongoUri = process.env.MONGODB_URI || MONGO_URI_PROVIDED;
+const getInitialState = () => ({
+    clients: [],
+    services: [],
+    appointments: [],
+    monthlyPlans: [],
+    clientPlanUsages: [],
+    operatingHours: {
+        daysOpen: [1, 2, 3, 4, 5, 6],
+        availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
+    },
+    automatedMessages: [],
+    users: [{ 
+        id: 'user-owner', 
+        username: 'owner', 
+        password: '123', 
+        role: 'owner', 
+        permissions: {
+            dashboard: true,
+            agenda: true,
+            clients: true,
+            services: true,
+            whatsapp: true,
+            settings: true,
+        } 
+    }],
+    conversationLogs: [],
+    catalogFiles: [],
+    wa_chats: {}, 
+    // Chatbot state tracking
+    chatbot_sessions: {},
+});
 
-let mongoClient;
-let mongoCollection;
 
-// Fila de notificações para o frontend (Polling simples)
-let frontendNotifications = [];
-
-if (mongoUri) {
-    try {
-        mongoClient = new MongoClient(mongoUri);
-        await mongoClient.connect();
-        console.log("Conectado ao MongoDB com sucesso.");
-        const db = mongoClient.db('carclass_whatsapp');
-        mongoCollection = db.collection('auth_info');
-    } catch (err) {
-        console.error("Erro CRÍTICO ao conectar ao MongoDB:", err);
-    }
-} else {
-    console.warn("ATENÇÃO: MONGODB_URI não definido. A sessão do WhatsApp não será persistida.");
-}
-
-// --- HELPER PARA AUTH STATE NO MONGODB ---
-const useMongoDBAuthState = async (collection) => {
-    const writeData = async (data, id) => {
+const loadDb = () => {
+    let loadedData = {};
+    if (fs.existsSync(DB_FILE_PATH)) {
         try {
-            await collection.updateOne(
-                { _id: id },
-                { $set: { data: JSON.stringify(data, BufferJSON.replacer) } },
-                { upsert: true }
-            );
-        } catch (err) {
-            console.error(`Erro ao salvar auth data (${id}):`, err);
-        }
-    };
-
-    const readData = async (id) => {
-        try {
-            const result = await collection.findOne({ _id: id });
-            if (result && result.data) {
-                return JSON.parse(result.data, BufferJSON.reviver);
+            console.log('[Persistence] Carregando dados do arquivo...');
+            const fileContent = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+            if (fileContent.trim() !== '') {
+                loadedData = JSON.parse(fileContent);
             }
-            return null;
-        } catch (err) {
-            console.error(`Erro ao ler auth data (${id}):`, err);
-            return null;
-        }
-    };
-
-    const removeData = async (id) => {
-        try {
-            await collection.deleteOne({ _id: id });
-        } catch (err) {
-             console.error(`Erro ao remover auth data (${id}):`, err);
-        }
-    };
-
-    const creds = (await readData('creds')) || initAuthCreds();
-
-    return {
-        state: {
-            creds,
-            keys: {
-                get: async (type, ids) => {
-                    const data = {};
-                    await Promise.all(ids.map(async (id) => {
-                        let value = await readData(`${type}-${id}`);
-                        if (type === 'app-state-sync-key' && value) {
-                            value = proto.Message.AppStateSyncKeyData.fromObject(value);
-                        }
-                        if (value) {
-                            data[id] = value;
-                        }
-                    }));
-                    return data;
-                },
-                set: async (data) => {
-                    const tasks = [];
-                    for (const category in data) {
-                        for (const id in data[category]) {
-                            const value = data[category][id];
-                            const key = `${category}-${id}`;
-                            if (value) {
-                                tasks.push(writeData(value, key));
-                            } else {
-                                tasks.push(removeData(key));
-                            }
-                        }
-                    }
-                    await Promise.all(tasks);
-                }
+        } catch (error) {
+            console.error('[Persistence] ERRO CRÍTICO ao ler ou analisar db.json:', error);
+            const backupPath = path.join(DATA_DIR, `db.corrupted.${Date.now()}.json`);
+            if (fs.existsSync(DB_FILE_PATH)) {
+                fs.copyFileSync(DB_FILE_PATH, backupPath);
+                console.warn(`[Persistence] Backup do arquivo corrompido salvo em: ${backupPath}`);
             }
-        },
-        saveCreds: () => {
-            return writeData(creds, 'creds');
+            loadedData = {}; // Start fresh on corruption
         }
-    };
-};
-
-
-// --- GESTÃO DE SESSÃO WHATSAPP ---
-let whatsappSession = {
-    status: 'disconnected', // 'disconnected', 'loading' (scanning), 'connected'
-    qrCode: null,
-    sock: null
-};
-
-async function connectToWhatsApp() {
-    let authState;
-
-    if (mongoCollection) {
-        console.log("Iniciando autenticação via MongoDB...");
-        authState = await useMongoDBAuthState(mongoCollection);
-    } else {
-        console.log("Usando autenticação em memória (fallback).");
-        const { useMultiFileAuthState } = await import('@whiskeysockets/baileys');
-        authState = await useMultiFileAuthState('auth_info_local'); 
     }
 
-    const { state, saveCreds } = authState;
+    // Initialize with default state, then merge loaded data over it.
+    aistudio = { ...getInitialState(), ...loadedData };
+
+    // --- DATA SANITIZATION & RECOVERY ---
+    // This routine ensures the primary 'owner' user can always log in.
+    const ownerTemplate = getInitialState().users[0];
     
-    const sock = makeWASocket({
-        auth: state,
-        // printQRInTerminal: true, // DEPRECATED: Removed to clean logs
-        logger: pino({ level: 'silent' }),
-        browser: ["CarClass Mobile", "Chrome", "1.0.0"],
-        connectTimeoutMs: 60000, 
+    // Ensure 'users' is an array.
+    if (!aistudio.users || !Array.isArray(aistudio.users)) {
+        aistudio.users = [];
+    }
+
+    // Find if owner exists by username OR by ID
+    const ownerIndex = aistudio.users.findIndex(u => u.username === 'owner' || u.id === 'user-owner');
+
+    if (ownerIndex !== -1) {
+        // Restore critical credentials. We KEEP the user ID consistent if it was different, 
+        // but enforce the 'owner' username and '123' password.
+        aistudio.users[ownerIndex] = {
+            ...aistudio.users[ownerIndex], 
+            id: 'user-owner', // Enforce standard ID
+            username: 'owner', 
+            password: '123',
+            role: 'owner',
+            permissions: ownerTemplate.permissions, // Restore full permissions
+        };
+        console.log('[Persistence] Usuário "owner" verificado e restaurado para o padrão.');
+    } else {
+        // If owner does not exist at all, add it back.
+        aistudio.users.unshift(ownerTemplate);
+        console.log('[Persistence] Usuário "owner" não encontrado. Adicionando ao sistema.');
+    }
+    
+    // Deduplicate users based on ID or Username to prevent conflicts
+    const seenIds = new Set();
+    const seenUsernames = new Set();
+    aistudio.users = aistudio.users.filter(u => {
+        const isDuplicate = seenIds.has(u.id) || seenUsernames.has(u.username);
+        seenIds.add(u.id);
+        seenUsernames.add(u.username);
+        return !isDuplicate;
     });
 
-    whatsappSession.sock = sock;
+    // Ensure other critical properties exist
+    if (!aistudio.wa_chats) aistudio.wa_chats = {};
+    if (!aistudio.chatbot_sessions) aistudio.chatbot_sessions = {};
+    if (!aistudio.catalogFiles) aistudio.catalogFiles = [];
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            whatsappSession.qrCode = qr;
-            whatsappSession.status = 'loading';
-            console.log("Novo QR Code gerado.");
+    saveDb(); // Save immediately to ensure the owner fix is persisted
+};
+
+const saveDb = () => {
+    try {
+        fs.writeFileSync(DB_FILE_PATH, JSON.stringify(aistudio, null, 2));
+    } catch (error) {
+        console.error('[Persistence] ERRO ao salvar dados:', error);
+    }
+};
+
+loadDb();
+
+
+// --- MIDDLEWARE ---
+app.use(express.json());
+// Serve static files from the uploads directory
+app.use('/uploads', express.static(UPLOADS_DIR));
+
+
+// --- API ROUTES ---
+apiRouter.get('/data', (req, res) => {
+    res.json(aistudio);
+});
+
+apiRouter.post('/data', (req, res) => {
+    for (const key in req.body) {
+        if (Object.prototype.hasOwnProperty.call(aistudio, key)) {
+            aistudio[key] = req.body[key];
         }
+    }
+    saveDb();
+    res.status(200).json({ message: 'Dados salvos com sucesso!' });
+});
 
-        if (connection === 'close') {
-            // Fix: Safely access output property using bracket notation to avoid TS error on 'Error' type
-            const shouldReconnect = (lastDisconnect?.error)?.['output']?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Conexão fechada. Reconectar?', shouldReconnect);
-            
-            // Fix: Safely access output property using bracket notation
-            if ((lastDisconnect?.error)?.['output']?.statusCode === DisconnectReason.loggedOut) {
-                whatsappSession.status = 'disconnected';
-                whatsappSession.qrCode = null;
-                if (mongoCollection) {
-                    mongoCollection.deleteMany({}); 
-                    console.log("Sessão limpa do banco após logout.");
-                }
-            } else {
-                 whatsappSession.status = 'disconnected'; 
-            }
-
-            if (shouldReconnect) {
-                // Adiciona delay para evitar loop infinito de reconexão
-                console.log("Tentando reconectar em 3 segundos...");
-                setTimeout(() => {
-                    connectToWhatsApp();
-                }, 3000);
-            }
-        } else if (connection === 'open') {
-            console.log('Conexão WhatsApp ESTABELECIDA!');
-            whatsappSession.status = 'connected';
-            whatsappSession.qrCode = null;
+apiRouter.post('/upload-catalog', upload.array('catalogs'), (req, res) => {
+    if (!req.files) {
+        return res.status(400).send('Nenhum arquivo enviado.');
+    }
+    const newFiles = req.files.map(file => ({
+        id: file.filename,
+        path: file.path,
+        file: {
+            name: file.originalname,
+            type: file.mimetype,
         }
+    }));
+    aistudio.catalogFiles.push(...newFiles);
+    saveDb();
+
+    // Respond with the updated list for frontend sync
+    res.status(200).json({
+        catalogFiles: aistudio.catalogFiles,
+        services: aistudio.services, // Also send services in case they are derived from this
+    });
+});
+
+apiRouter.delete('/delete-catalog/:fileId', (req, res) => {
+    const { fileId } = req.params;
+    const fileIndex = aistudio.catalogFiles.findIndex(f => f.id === fileId);
+
+    if (fileIndex > -1) {
+        const fileToDelete = aistudio.catalogFiles[fileIndex];
+        // Delete from filesystem
+        if (fs.existsSync(fileToDelete.path)) {
+            fs.unlinkSync(fileToDelete.path);
+        }
+        // Remove from DB
+        aistudio.catalogFiles.splice(fileIndex, 1);
+        saveDb();
+        res.status(200).json({ services: aistudio.services }); // Send back potentially updated services
+    } else {
+        res.status(404).send('Arquivo não encontrado.');
+    }
+});
+
+
+// --- GEMINI API SETUP ---
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+async function runGemini(prompt) {
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json'
+            }
+        });
+        return JSON.parse(response.text);
+    } catch (e) {
+        console.error("Gemini API error:", e);
+        return { error: "Failed to process request with AI." };
+    }
+}
+
+
+// --- WHATSAPP BOT (BAILEYS) ---
+let sock = null;
+const SESSION_DIR = path.join(DATA_DIR, 'whatsapp_session');
+const waEvents = new EventEmitter();
+waEvents.setMaxListeners(0); // Unlimited listeners for long-polling
+
+let waConnectionStatus = { 
+    isConnected: false, 
+    message: 'Inicializando...', 
+    qrCode: null 
+};
+
+const normalizeText = (text = '') => text ? text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+
+const sendMessageWTyping = async (jid, text) => {
+    if (!sock) return;
+    await sock.presenceSubscribe(jid);
+    await sock.sendPresenceUpdate('composing', jid);
+    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
+    await sock.sendPresenceUpdate('paused', jid);
+    await sock.sendMessage(jid, { text });
+};
+
+const startWhatsApp = async () => {
+    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+    const { version } = await fetchLatestBaileysVersion();
+    
+    console.log(`[WhatsApp] Usando Baileys v${version.join('.')}`);
+
+    sock = makeWASocket({
+        version,
+        auth: state,
+        logger: pino({ level: 'silent' }),
+        browser: ['CARCLASS', 'Chrome', '1.0.0']
     });
 
     sock.ev.on('creds.update', saveCreds);
-    
-    // Monitoramento de novas conversas para notificação
-    sock.ev.on('messages.upsert', async m => {
-        if(m.type === 'notify') {
-            for (const msg of m.messages) {
-                if (!msg.key.fromMe && m.type === 'notify') {
-                    const sender = msg.pushName || msg.key.remoteJid.split('@')[0];
-                    // Adiciona notificação na fila para o frontend consumir
-                    frontendNotifications.push({
-                        type: 'new_message',
-                        text: `Nova mensagem de ${sender}`,
-                        timestamp: new Date()
-                    });
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if(qr) {
+            waConnectionStatus = { isConnected: false, message: 'Escaneie o QR Code para conectar', qrCode: await qrcode.toDataURL(qr) };
+        }
+        
+        if(connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            waConnectionStatus = { isConnected: false, message: 'Desconectado. Tentando reconectar...', qrCode: null };
+            console.log('[WhatsApp] Conexão fechada, motivo:', lastDisconnect.error, ', reconectando:', shouldReconnect);
+            
+            if(shouldReconnect) {
+                // Add delay to prevent infinite loops in case of immediate disconnection
+                setTimeout(startWhatsApp, 3000);
+            } else {
+                 // Logged out, clear session
+                if (fs.existsSync(SESSION_DIR)) {
+                    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
                 }
+                waConnectionStatus.message = 'Desconectado. Por favor, escaneie um novo QR Code.';
+                setTimeout(startWhatsApp, 1000); // restart to generate new QR
+            }
+        } else if(connection === 'open') {
+            waConnectionStatus = { isConnected: true, message: 'Conectado com sucesso!', qrCode: null };
+            console.log('[WhatsApp] Conexão aberta.');
+        }
+
+        waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
+    });
+
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.message || msg.key.fromMe) return;
+
+        const senderJid = msg.key.remoteJid;
+        const senderName = msg.pushName || senderJid.split('@')[0];
+        const messageBody = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        
+        console.log(`[WhatsApp] Mensagem de ${senderName} (${senderJid}): "${messageBody}"`);
+        
+        // --- SAVE MESSAGE & NOTIFY FRONTEND ---
+         if (!aistudio.wa_chats[senderJid]) {
+            aistudio.wa_chats[senderJid] = [];
+        }
+        const messageToStore = {
+            id: { fromMe: false, remote: senderJid },
+            body: messageBody,
+            timestamp: msg.messageTimestamp,
+            isBot: false,
+        };
+        aistudio.wa_chats[senderJid].push(messageToStore);
+        saveDb();
+        
+         waEvents.emit('event', { type: 'message', data: messageToStore, senderName });
+         
+         // --- CHATBOT LOGIC ---
+         await handleBotLogic(senderJid, messageBody, senderName);
+    });
+};
+
+// --- WHATSAPP API ROUTES ---
+apiRouter.get('/whatsapp/status', (req, res) => {
+    res.json(waConnectionStatus);
+});
+
+apiRouter.get('/whatsapp/events', (req, res) => {
+    const handler = (event) => {
+        if (!res.headersSent) {
+            res.json(event);
+        }
+    };
+    waEvents.once('event', handler);
+    // Clean up listener if client disconnects
+    req.on('close', () => {
+        waEvents.removeListener('event', handler);
+    });
+});
+
+apiRouter.get('/whatsapp/chats', (req, res) => {
+     const chats = Object.keys(aistudio.wa_chats).map(chatId => {
+        const messages = aistudio.wa_chats[chatId];
+        const lastMessage = messages[messages.length - 1];
+        // A simple way to get a name. In a real app, you'd store contact names.
+        const contact = aistudio.clients.find(c => c.whatsapp === chatId.split('@')[0]);
+        return {
+            id: chatId,
+            name: contact?.name || chatId.split('@')[0],
+            lastMessage: {
+                body: lastMessage?.body || '',
+                timestamp: lastMessage?.timestamp || 0
+            }
+        };
+    }).sort((a, b) => b.lastMessage.timestamp - a.lastMessage.timestamp);
+    res.json(chats);
+});
+
+apiRouter.get('/whatsapp/messages/:chatId', (req, res) => {
+    const { chatId } = req.params;
+    const messages = aistudio.wa_chats[chatId] || [];
+    res.json(messages);
+});
+
+apiRouter.post('/whatsapp/send-message', async (req, res) => {
+    if (!sock || !waConnectionStatus.isConnected) {
+        return res.status(400).json({ error: "WhatsApp não está conectado." });
+    }
+    const { chatId, message } = req.body;
+    try {
+        await sock.sendMessage(chatId, { text: message });
+        
+        if (!aistudio.wa_chats[chatId]) aistudio.wa_chats[chatId] = [];
+        const messageToStore = {
+            id: { fromMe: true, remote: chatId },
+            body: message,
+            timestamp: Date.now() / 1000,
+            isBot: false
+        };
+        aistudio.wa_chats[chatId].push(messageToStore);
+        saveDb();
+        
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error("Erro ao enviar mensagem:", error);
+        res.status(500).json({ error: "Falha ao enviar mensagem." });
+    }
+});
+
+// Mount the API router
+app.use('/api', apiRouter);
+
+
+// --- CHATBOT IMPLEMENTATION ---
+
+// Helper functions for the bot
+const normalizeCPF = (cpf) => cpf.replace(/[^\d]/g, '');
+const findClientByCpf = (cpf) => aistudio.clients.find(c => normalizeCPF(c.cpf) === normalizeCPF(cpf));
+const getClientUpcomingAppointment = (clientId) => {
+    const today = new Date().toISOString().split('T')[0];
+    return aistudio.appointments
+        .filter(a => a.clientId === clientId && a.date >= today && a.status !== 'Finalizado')
+        .sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time))[0];
+};
+
+const parseDateTime = (text) => {
+    const now = new Date();
+    const normalizedText = normalizeText(text.replace(/ as /g, ' '));
+
+    const monthMap = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11, janeiro: 0, fevereiro: 1, marco: 2, abril: 3, maio: 4, junho: 5, julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11 };
+    const weekdayMap = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
+
+    let day, month, year = now.getFullYear(), hour, minute = 0;
+
+    const timeMatch = normalizedText.match(/(\d{1,2})[:h](\d{2})?/);
+    if (timeMatch) {
+        hour = parseInt(timeMatch[1], 10);
+        minute = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+    } else {
+        return null; // Time is mandatory
+    }
+
+    const dayMonthMatch = normalizedText.match(/(\d{1,2})\s+de\s+([a-z]+)/);
+    const dayOnlyMatch = normalizedText.match(/dia\s+(\d{1,2})/);
+    const weekdayMatch = normalizedText.match(/(seg|ter|qua|qui|sex|sab|dom)/);
+
+    if (dayMonthMatch) {
+        day = parseInt(dayMonthMatch[1], 10);
+        const monthStr = dayMonthMatch[2].substring(0, 3);
+        if (monthMap.hasOwnProperty(monthStr)) month = monthMap[monthStr];
+    } else if (dayOnlyMatch) {
+        day = parseInt(dayOnlyMatch[1], 10);
+        month = now.getDate() > day ? now.getMonth() + 1 : now.getMonth();
+    } else if (weekdayMatch) {
+        const targetWeekday = weekdayMap[weekdayMatch[1]];
+        const tempDate = new Date();
+        tempDate.setDate(tempDate.getDate() + (targetWeekday + 7 - tempDate.getDay()) % 7);
+        day = tempDate.getDate();
+        month = tempDate.getMonth();
+        year = tempDate.getFullYear();
+    } else {
+        return null; // Day/Month context is missing
+    }
+
+    if (day === undefined || month === undefined) return null;
+    
+    const targetDate = new Date(year, month, day);
+    if (targetDate < now && targetDate.toDateString() !== now.toDateString()) {
+        year++;
+    }
+
+    const dateObj = new Date(year, month, day, hour, minute);
+    if (isNaN(dateObj.getTime())) return null;
+
+    return {
+        date: dateObj.toISOString().split('T')[0],
+        time: dateObj.toTimeString().substring(0, 5)
+    };
+};
+
+const isSlotAvailable = (dateString, timeString) => {
+    const { operatingHours, appointments } = aistudio;
+    const targetDate = new Date(`${dateString}T00:00:00`); 
+    const dayOfWeek = targetDate.getDay();
+
+    // Note: JS Date getDay() is Sun=0, Sat=6. Our operatingHours is the same.
+    if (!operatingHours.daysOpen.includes(dayOfWeek)) return false;
+    if (!operatingHours.availableTimes.includes(timeString)) return false;
+
+    const isBooked = appointments.some(app => app.date === dateString && app.time === timeString && app.status !== 'Finalizado');
+    return !isBooked;
+};
+
+const getAvailableSlots = () => {
+    const { operatingHours, appointments } = aistudio;
+    let availableSlotsMessage = "Estes são os nossos próximos dias e horários disponíveis:\n\n";
+    let daysFound = 0;
+    const distinctDays = new Set();
+
+    for (let i = 0; i < 14 && daysFound < 5; i++) {
+        const day = new Date();
+        day.setDate(day.getDate() + i);
+        const dayOfWeek = day.getDay();
+
+        if (operatingHours.daysOpen.includes(dayOfWeek)) {
+            const dateString = day.toISOString().split('T')[0];
+            
+            if (distinctDays.has(dateString)) continue;
+
+            const todaysAppointments = appointments.filter(a => a.date === dateString && a.status !== 'Finalizado');
+            const bookedTimes = todaysAppointments.map(a => a.time);
+            const availableForDay = operatingHours.availableTimes.filter(t => !bookedTimes.includes(t));
+
+            if (availableForDay.length > 0) {
+                const dayLabel = day.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+                availableSlotsMessage += `*${dayLabel}*:\n${availableForDay.join('h, ')}h\n\n`;
+                daysFound++;
+                distinctDays.add(dateString);
             }
         }
-    });
-}
-
-// Inicializa conexão se já tiver credenciais salvas no banco
-if (mongoCollection) {
-    // Aumenta o tempo inicial para garantir que o banco esteja pronto
-    setTimeout(() => {
-        connectToWhatsApp();
-    }, 3000);
-}
-
-
-// --- ROTAS DA API WHATSAPP ---
-
-app.post('/api/whatsapp/start', async (req, res) => {
-    if (whatsappSession.status === 'connected') {
-        // Fix: Do not return the response object to match RequestHandler return type
-        res.json({ status: 'connected', message: 'Já conectado' });
-        return;
     }
-    // Força reinício se estiver travado, mas verifica se já não está conectando
-    if (whatsappSession.status !== 'loading') {
-        await connectToWhatsApp();
-    }
-    res.json({ status: 'loading', message: 'Iniciando conexão...' });
-});
+    return daysFound > 0 ? availableSlotsMessage : "Desculpe, não temos horários disponíveis nos próximos 14 dias. Por favor, entre em contato para verificar a disponibilidade.";
+};
 
-app.get('/api/whatsapp/status', (req, res) => {
-    res.json({ 
-        status: whatsappSession.status, 
-        qrCode: whatsappSession.qrCode 
-    });
-});
-
-// Endpoint para o frontend buscar notificações do sistema (polling)
-app.get('/api/notifications', (req, res) => {
-    const notifs = [...frontendNotifications];
-    frontendNotifications = []; // Limpa a fila após entregar
-    res.json(notifs);
-});
-
-
-// --- ROTAS DA API GEMINI ---
-app.post('/api/chat', async (req, res) => {
-  const { userInput, services } = req.body;
-
-  if (!userInput || !services) {
-    return res.status(400).json({ error: 'userInput e services são obrigatórios.' });
-  }
-
-  const serviceListForPrompt = services.map((s) =>
-    `- ID: "${s.id}", Nome: "${s.name}", Preço: R$${s.price.toFixed(2)}, Descrição: "${s.description}"`
-  ).join('\n');
-
-  const prompt = `Você é um assistente de agendamento para a estética automotiva CAR CLASS. O cliente recebeu um catálogo com serviços e respondeu. Sua tarefa é analisar a mensagem do cliente e a lista de serviços para decidir a ação.
-
-Lista de Serviços:
-${serviceListForPrompt}
-
-Mensagem do Cliente: "${userInput}"
-
-Com base na mensagem, responda APENAS com um objeto JSON válido com este formato:
-{
-  "action": "BOOK_SERVICE" | "ANSWER_QUESTION" | "CLARIFY",
-  "serviceIds": ["id_do_servico_1", "id_do_servico_2"],
-  "responseText": "Sua resposta para o cliente."
-}
-
-- Se o cliente claramente escolheu um ou mais serviços, use action "BOOK_SERVICE", inclua os serviceIds, e confirme em responseText.
-- Se o cliente fez uma pergunta (preço, duração, etc), use action "ANSWER_QUESTION", responda em responseText e deixe serviceIds vazio.
-- Se for ambíguo (ex: "lavagem", quando há duas), use action "CLARIFY", peça para esclarecer em responseText e deixe serviceIds vazio.`;
-  
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            action: { type: Type.STRING },
-            serviceIds: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
-            },
-            responseText: { type: Type.STRING }
-          },
-          required: ['action', 'responseText']
-        }
-      }
-    });
+const handleBotLogic = async (senderJid, message, senderName) => {
+    let session = aistudio.chatbot_sessions[senderJid] || { state: 'GREETING' };
+    const normalizedMessage = normalizeText(message);
+    const clientNumber = senderJid.split('@')[0];
     
-    const result = JSON.parse(response.text);
-    res.json(result);
-  } catch (error) {
-    console.error('Erro na API do Gemini (Chat):', error);
-    res.status(500).json({ error: 'Falha ao se comunicar com a IA.' });
-  }
-});
+    if (session.state === 'CONVERSATION_ENDED' && message) {
+        session = { state: 'GREETING' };
+    }
 
-app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) => {
-  const file = req.file;
-  if (!file) {
-    // Fix: Do not return the response object
-    res.status(400).json({ error: 'Nenhum arquivo enviado.' });
-    return;
-  }
+    const sendBotMessage = async (text) => {
+        await sendMessageWTyping(senderJid, text);
+        if (!aistudio.wa_chats[senderJid]) aistudio.wa_chats[senderJid] = [];
+        const messageToStore = { id: { fromMe: true, remote: senderJid }, body: text, timestamp: Date.now() / 1000, isBot: true };
+        aistudio.wa_chats[senderJid].push(messageToStore);
+        waEvents.emit('event', { type: 'message', data: messageToStore, senderName });
+    };
 
-  const base64File = file.buffer.toString('base64');
-  
-  const isPdf = file.mimetype === 'application/pdf';
-  const prompt = isPdf
-      ? `Extraia todos os serviços do documento PDF. Para cada serviço, identifique o nome, descrição, duração em minutos, preço em BRL e, se houver, o intervalo de manutenção em meses. Retorne os dados em um array de objetos JSON, seguindo este schema. Campos numéricos devem ser apenas números.`
-      : `Extraia todos os serviços da imagem do catálogo. Para cada serviço, identifique o nome, descrição, duração em minutos, preço em BRL e, se houver, o intervalo de manutenção em meses. Retorne os dados em um array de objetos JSON, seguindo este schema. Campos numéricos devem ser apenas números.`;
+    const resetSession = () => {
+        delete aistudio.chatbot_sessions[senderJid];
+    };
+    
+    // Sends the complete, updated data to the frontend for robust sync
+    const notifyFrontendOfDbChange = () => {
+        waEvents.emit('event', { 
+            type: 'db_change', 
+            data: { 
+                clients: aistudio.clients, 
+                appointments: aistudio.appointments 
+            } 
+        });
+    }
+    
+    const showSummaryAndConfirm = async () => {
+        const { serviceId, carId, date, time, protections } = session;
+        const service = serviceId === 'on-site' ? { name: 'A ser escolhido no local' } : aistudio.services.find(s => s.id === serviceId);
+        const client = aistudio.clients.find(c => c.id === session.clientId);
+        const car = client.cars.find(c => c.id === carId);
 
-  try {
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: {
-            parts: [
-                { text: prompt },
-                {
-                    inlineData: {
-                        mimeType: file.mimetype,
-                        data: base64File,
-                    },
-                },
-            ],
-        },
-        config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        name: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        duration: { type: Type.NUMBER },
-                        price: { type: Type.NUMBER },
-                        maintenanceIntervalMonths: { type: Type.NUMBER },
-                    },
-                    required: ["name", "description", "duration", "price"]
+        let summary = "Ótimo! Por favor, confirme os detalhes do seu agendamento:\n\n";
+        if (service) summary += `*Serviço:* ${service.name}\n`;
+        if (car) summary += `*Veículo:* ${car.model} (${car.plate})\n`;
+        if (date && time) {
+             const confirmationDate = new Date(`${date}T${time}`);
+             const formattedDate = confirmationDate.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+             summary += `*Data e Hora:* ${formattedDate} às ${time}h\n`;
+        }
+        if (protections) summary += `*Proteções informadas:* ${protections}\n`;
+
+        summary += "\nEstá tudo correto? Responda *Confirmar* ou *Alterar*.";
+        await sendBotMessage(summary);
+        session.state = 'AWAITING_FINAL_CONFIRMATION';
+    };
+
+    switch (session.state) {
+        case 'GREETING':
+            await sendBotMessage(`Olá! Sou o assistente virtual da CAR CLASS. Para começarmos, você já é nosso cliente? (Responda com *Sim* ou *Não*)`);
+            session.state = 'AWAITING_IS_CLIENT_RESPONSE';
+            break;
+
+        case 'AWAITING_IS_CLIENT_RESPONSE':
+            if (normalizedMessage.includes('sim')) {
+                await sendBotMessage("Que bom te ver de volta! Por favor, digite seu CPF para localizarmos seu cadastro. (Pode ser com pontos e traço)");
+                session.state = 'VALIDATING_CPF';
+                session.cpfRetryCount = 0;
+            } else if (normalizedMessage.includes('nao')) {
+                await sendBotMessage("Seja bem-vindo(a)! Vamos realizar seu cadastro. Por favor, digite seu nome completo.");
+                session.state = 'AWAITING_NEW_CLIENT_NAME';
+            } else {
+                await sendBotMessage("Desculpe, não entendi. Por favor, responda com *Sim* ou *Não*.");
+            }
+            break;
+
+        case 'VALIDATING_CPF':
+            const foundClient = findClientByCpf(message);
+            if (foundClient) {
+                session.clientId = foundClient.id;
+                await sendBotMessage(`Cadastro encontrado em nome de *${foundClient.name}*!`);
+                const upcomingAppointment = getClientUpcomingAppointment(foundClient.id);
+                if (upcomingAppointment) {
+                    session.existingAppointmentId = upcomingAppointment.id;
+                    const appointmentDate = new Date(upcomingAppointment.date + 'T' + upcomingAppointment.time).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+                    await sendBotMessage(`Verifiquei aqui e você já tem um agendamento para ${appointmentDate}. Você deseja *alterar*, *cancelar* este agendamento ou *prosseguir* com um novo?`);
+                    session.state = 'AWAITING_EXISTING_APPOINTMENT_ACTION';
+                } else {
+                    await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+                    session.state = 'CHOOSE_SERVICE_OPTION';
+                }
+            } else {
+                session.cpfRetryCount++;
+                if (session.cpfRetryCount < 2) {
+                    await sendBotMessage("CPF não encontrado. Por favor, tente digitar novamente.");
+                } else {
+                    await sendBotMessage("Ainda não localizei seu CPF. Vamos fazer um novo cadastro para você. Qual o seu nome completo?");
+                    session.state = 'AWAITING_NEW_CLIENT_NAME';
                 }
             }
-        }
+            break;
+
+        case 'AWAITING_EXISTING_APPOINTMENT_ACTION':
+             if (normalizedMessage.includes('cancelar')) {
+                const appointmentId = session.existingAppointmentId;
+                aistudio.appointments = aistudio.appointments.filter(a => a.id !== appointmentId);
+                await sendBotMessage("Seu agendamento foi cancelado com sucesso. O horário agora está disponível novamente. Se precisar de algo mais, é só chamar!");
+                notifyFrontendOfDbChange();
+                resetSession();
+            } else if (normalizedMessage.includes('alterar')) {
+                const appointment = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
+                session.serviceId = appointment.serviceIds[0]; 
+                await sendBotMessage("Ok, vamos alterar. " + getAvailableSlots());
+                session.state = 'AWAITING_DATETIME_FOR_CHANGE';
+            } else if (normalizedMessage.includes('prosseguir')) {
+                await sendBotMessage("Certo! Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+                session.state = 'CHOOSE_SERVICE_OPTION';
+            } else {
+                await sendBotMessage("Por favor, responda com *alterar*, *cancelar* ou *prosseguir*.");
+            }
+            break;
+
+        case 'AWAITING_NEW_CLIENT_NAME':
+            session.newClientName = message;
+            await sendBotMessage("Obrigado. Agora, por favor, digite seu CPF.");
+            session.state = 'AWAITING_NEW_CLIENT_CPF';
+            break;
+
+        case 'AWAITING_NEW_CLIENT_CPF':
+            const existingClient = findClientByCpf(message);
+            if (existingClient) {
+                await sendBotMessage("Este CPF já está cadastrado em nome de *" + existingClient.name + "*. Vamos prosseguir com este cadastro.");
+                session.clientId = existingClient.id;
+            } else {
+                const newClient = { id: `c${Date.now()}`, name: session.newClientName, cpf: message, whatsapp: clientNumber, cars: [] };
+                aistudio.clients.push(newClient);
+                session.clientId = newClient.id;
+                await sendBotMessage("Cadastro concluído com sucesso!");
+                notifyFrontendOfDbChange();
+            }
+            await sendBotMessage("Você deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+            session.state = 'CHOOSE_SERVICE_OPTION';
+            break;
+
+        case 'CHOOSE_SERVICE_OPTION':
+            if (normalizedMessage.includes('lista') || normalizedMessage.includes('ver')) {
+                if (aistudio.catalogFiles && aistudio.catalogFiles.length > 0) {
+                    await sendBotMessage("Certo! Enviando nosso catálogo de serviços para você:");
+                     for (const file of aistudio.catalogFiles) {
+                         await sock.sendMessage(senderJid, {
+                             document: { url: file.path },
+                             mimetype: file.file.type,
+                             fileName: file.file.name
+                         });
+                     }
+                    await sendBotMessage("Qual dos serviços acima você deseja agendar?");
+                } else {
+                    const serviceList = aistudio.services.map(s => `*- ${s.name}*`).join('\n');
+                    await sendBotMessage(`Claro! Aqui estão nossos serviços:\n\n${serviceList}\n\nQual deles você deseja?`);
+                }
+                session.state = 'AWAITING_SERVICE_CHOICE';
+            } else if (normalizedMessage.includes('local') || normalizedMessage.includes('escolher')) {
+                session.serviceId = 'on-site';
+                await sendBotMessage("Entendido. " + getAvailableSlots());
+                session.state = 'AWAITING_DATETIME_CHOICE';
+            } else {
+                await sendBotMessage("Por favor, me diga se quer ver a *lista de serviços* ou *escolher no local*.");
+            }
+            break;
+
+        case 'AWAITING_SERVICE_CHOICE':
+            const chosenService = aistudio.services.find(s => normalizeText(s.name).includes(normalizedMessage));
+            if (chosenService) {
+                session.serviceId = chosenService.id;
+                await sendBotMessage(`Ótimo, serviço *${chosenService.name}* selecionado. ` + getAvailableSlots());
+                session.state = 'AWAITING_DATETIME_CHOICE';
+            } else {
+                await sendBotMessage("Não encontrei este serviço. Por favor, digite o nome de um dos serviços da nossa lista.");
+            }
+            break;
+            
+        case 'AWAITING_DATETIME_CHOICE':
+        case 'AWAITING_DATETIME_FOR_CHANGE':
+            const parsedDateTime = parseDateTime(message);
+            if (parsedDateTime && isSlotAvailable(parsedDateTime.date, parsedDateTime.time)) {
+                session.date = parsedDateTime.date;
+                session.time = parsedDateTime.time;
+                const confirmationDate = new Date(`${parsedDateTime.date}T${parsedDateTime.time}`);
+                const formattedDate = confirmationDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
+                await sendBotMessage(`Ok! Horário pré-agendado para ${formattedDate} às ${parsedDateTime.time}h.`);
+                
+                const clientForVehicleCheck = aistudio.clients.find(c => c.id === session.clientId);
+
+                if (session.state === 'AWAITING_DATETIME_FOR_CHANGE') {
+                     if (clientForVehicleCheck.cars && clientForVehicleCheck.cars.length > 0) {
+                         const carToConfirm = clientForVehicleCheck.cars.find(c => c.id === aistudio.appointments.find(a => a.id === session.existingAppointmentId).carId);
+                         await sendBotMessage(`O serviço será no seu *${carToConfirm.model} (${carToConfirm.plate})*? (*Sim* ou *Não*)`);
+                         session.state = 'CONFIRM_EXISTING_VEHICLE_FOR_CHANGE';
+                     } else { // Should not happen if appointment existed, but as a fallback
+                          await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
+                          session.state = 'AWAITING_PROTECTION_RESPONSE';
+                     }
+                } else {
+                     await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
+                     session.state = 'AWAITING_PROTECTION_RESPONSE';
+                }
+            } else {
+                await sendBotMessage("Desculpe, não entendi a data e hora ou este horário não está disponível. Por favor, escolha um dos horários da lista ou digite, por exemplo: 'terça as 10h' ou 'dia 22 as 15h'.");
+            }
+            break;
+            
+        case 'AWAITING_PROTECTION_RESPONSE':
+            if (normalizedMessage.includes('sim')) {
+                await sendBotMessage("Por favor, me diga qual ou quais proteções ele possui.");
+                session.state = 'AWAITING_PROTECTION_DETAILS';
+            } else if (normalizedMessage.includes('nao')) {
+                session.protections = 'Nenhuma';
+                const clientForProtectionCheck = aistudio.clients.find(c => c.id === session.clientId);
+                if (clientForProtectionCheck.cars && clientForProtectionCheck.cars.length > 0) {
+                    if (clientForProtectionCheck.cars.length === 1) {
+                        const car = clientForProtectionCheck.cars[0];
+                        await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`);
+                        session.state = 'CONFIRM_EXISTING_VEHICLE';
+                    } else {
+                        let carList = "O serviço será em qual dos seus veículos?\n";
+                        clientForProtectionCheck.cars.forEach((car, index) => {
+                            carList += `${index + 1}. ${car.model} (${car.plate})\n`;
+                        });
+                        carList += "\nDigite o número correspondente.";
+                        await sendBotMessage(carList);
+                        session.state = 'CHOOSE_AMONG_VEHICLES';
+                    }
+                } else {
+                    await sendBotMessage("Para finalizar, qual o modelo e a placa do veículo? (Ex: Honda Civic ABC1D23)");
+                    session.state = 'AWAITING_NEW_VEHICLE';
+                }
+            } else {
+                await sendBotMessage("Por favor, responda com *Sim* ou *Não*.");
+            }
+            break;
+
+        case 'AWAITING_PROTECTION_DETAILS':
+            session.protections = message;
+            const clientForDetailsCheck = aistudio.clients.find(c => c.id === session.clientId);
+            if (clientForDetailsCheck.cars && clientForDetailsCheck.cars.length > 0) {
+                 if (clientForDetailsCheck.cars.length === 1) {
+                    const car = clientForDetailsCheck.cars[0];
+                    await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`);
+                    session.state = 'CONFIRM_EXISTING_VEHICLE';
+                } else {
+                    let carList = "Entendido. E o serviço será em qual dos seus veículos?\n";
+                    clientForDetailsCheck.cars.forEach((car, index) => { carList += `${index + 1}. ${car.model} (${car.plate})\n`; });
+                    carList += "\nDigite o número correspondente.";
+                    await sendBotMessage(carList);
+                    session.state = 'CHOOSE_AMONG_VEHICLES';
+                }
+            } else {
+                 await sendBotMessage("Entendido. Para finalizar, qual o modelo e a placa do veículo? (Ex: Honda Civic ABC1D23)");
+                 session.state = 'AWAITING_NEW_VEHICLE';
+            }
+            break;
+
+        case 'CONFIRM_EXISTING_VEHICLE':
+             const clientToConfirm = aistudio.clients.find(c => c.id === session.clientId);
+             if (normalizedMessage.includes('sim')) {
+                 session.carId = clientToConfirm.cars[0].id;
+                 await showSummaryAndConfirm();
+             } else {
+                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.");
+                 session.state = 'AWAITING_NEW_VEHICLE';
+             }
+             break;
+        
+        case 'CONFIRM_EXISTING_VEHICLE_FOR_CHANGE':
+             const clientToConfirmChange = aistudio.clients.find(c => c.id === session.clientId);
+             const appointmentToChange = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
+             if (normalizedMessage.includes('sim')) {
+                 session.carId = appointmentToChange.carId;
+                 await showSummaryAndConfirm();
+             } else {
+                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.");
+                 session.state = 'AWAITING_NEW_VEHICLE';
+             }
+             break;
+
+        case 'CHOOSE_AMONG_VEHICLES':
+            const clientToChoose = aistudio.clients.find(c => c.id === session.clientId);
+            const choice = parseInt(message, 10) - 1;
+            if (clientToChoose.cars[choice]) {
+                session.carId = clientToChoose.cars[choice].id;
+                await showSummaryAndConfirm();
+            } else {
+                await sendBotMessage("Opção inválida. Por favor, digite o número de um dos veículos da lista.");
+            }
+            break;
+
+        case 'AWAITING_NEW_VEHICLE':
+            const parts = message.trim().split(' ');
+            if (parts.length < 2) {
+                 await sendBotMessage("Formato inválido. Por favor, envie o modelo e a placa. (Ex: Honda Civic ABC1D23)");
+                 return;
+            }
+            const plate = parts.pop();
+            const model = parts.join(' ');
+            const newCar = { id: `car${Date.now()}`, model, plate, protections: session.protections ? [session.protections] : [] };
+            
+            const clientIndex = aistudio.clients.findIndex(c => c.id === session.clientId);
+            if (clientIndex !== -1) {
+                aistudio.clients[clientIndex].cars.push(newCar);
+                session.carId = newCar.id;
+                notifyFrontendOfDbChange();
+                await sendBotMessage(`Veículo *${model} (${plate})* cadastrado!`);
+                await showSummaryAndConfirm();
+            }
+            break;
+            
+        case 'AWAITING_FINAL_CONFIRMATION':
+            if (normalizedMessage.includes('confirmar')) {
+                if (!isSlotAvailable(session.date, session.time)) {
+                    await sendBotMessage("Oh, que pena! Parece que alguém acabou de agendar neste mesmo horário enquanto você confirmava. Vamos tentar outro?");
+                    await sendBotMessage(getAvailableSlots());
+                    session.state = 'AWAITING_DATETIME_CHOICE';
+                    break;
+                }
+
+                let appointmentData = {
+                    clientId: session.clientId,
+                    carId: session.carId,
+                    serviceIds: session.serviceId === 'on-site' ? [] : [session.serviceId],
+                    date: session.date,
+                    time: session.time,
+                    status: 'Agendado'
+                };
+                
+                if (session.existingAppointmentId) {
+                    aistudio.appointments = aistudio.appointments.map(a => a.id === session.existingAppointmentId ? { ...a, ...appointmentData } : a);
+                } else {
+                    aistudio.appointments.push({ ...appointmentData, id: `a${Date.now()}`});
+                }
+                notifyFrontendOfDbChange();
+                await sendBotMessage("Agendamento confirmado com sucesso! Muito obrigado por escolher a CAR CLASS. Até breve!");
+                session.state = 'CONVERSATION_ENDED';
+
+            } else if (normalizedMessage.includes('alterar')) {
+                await sendBotMessage("O que você deseja alterar? (*Serviço*, *Veículo*, *Data/Hora* ou *Proteção*)");
+                session.state = 'AWAITING_ALTERATION_CHOICE';
+            } else {
+                await sendBotMessage("Por favor, responda com *Confirmar* ou *Alterar*.");
+            }
+            break;
+            
+        case 'AWAITING_ALTERATION_CHOICE':
+             if (normalizedMessage.includes('servico')) {
+                session.state = 'CHOOSE_SERVICE_OPTION';
+                await sendBotMessage("Ok, vamos alterar o serviço. Deseja ver a lista ou escolher no local?");
+             } else if (normalizedMessage.includes('veiculo') || normalizedMessage.includes('protecao')) {
+                 session.state = 'AWAITING_PROTECTION_RESPONSE'; // Restart from vehicle/protection step
+                 await sendBotMessage("Vamos alterar o veículo. Ele possui alguma proteção? (*Sim* ou *Não*)");
+             } else if (normalizedMessage.includes('data') || normalizedMessage.includes('hora')) {
+                 await sendBotMessage("Ok, vamos alterar a data/hora. " + getAvailableSlots());
+                 session.state = 'AWAITING_DATETIME_CHOICE';
+             } else {
+                 await sendBotMessage("Não entendi. Por favor, escolha entre *Serviço*, *Veículo*, *Data/Hora* ou *Proteção*.");
+             }
+             break;
+    }
+
+    aistudio.chatbot_sessions[senderJid] = session;
+    saveDb();
+};
+
+
+// --- STARTUP LOGIC ---
+// Differentiate between development (Vite middleware) and production (standalone server)
+const isViteDev = process.env.npm_lifecycle_script?.includes('vite');
+
+if (isViteDev) {
+    // DEVELOPMENT: Running as Vite middleware.
+    // The `app` is already configured with API routes.
+    // Vite handles static serving and the server itself.
+    // We just need to start the WhatsApp client.
+    console.log('[Vite Dev] Anexando servidor Express e iniciando WhatsApp...');
+    startWhatsApp().catch(err => console.error("[Vite Dev Startup] Erro fatal ao iniciar o WhatsApp:", err));
+} else {
+    // PRODUCTION: Running as a standalone Node.js server.
+    // Serve the built frontend files.
+    app.use(express.static(DIST_DIR));
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(DIST_DIR, 'index.html'));
     });
 
-    const extractedServices = JSON.parse(response.text);
-    res.json(extractedServices);
-
-  } catch(error) {
-    console.error('Erro na API do Gemini (Catalog):', error);
-    res.status(500).json({ error: 'Falha ao processar o arquivo com a IA.' });
-  }
-});
-
-// --- SERVINDO O FRONTEND ---
-app.use(express.static(path.join(__dirname, 'dist')));
-
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
-
-// --- INICIALIZAÇÃO DO SERVIDOR ---
-app.listen(port, () => {
-  console.log(`Servidor unificado rodando em http://localhost:${port}`);
-});
+    // Start listening and then start WhatsApp.
+    app.listen(port, () => {
+        console.log(`[Server] Servidor HTTP rodando na porta ${port}`);
+        console.log(`[Server] Acessível em http://localhost:${port}`);
+        startWhatsApp().catch(err => console.error("[Production Startup] Erro fatal ao iniciar o WhatsApp:", err));
+    });
+}
