@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import QRCode from 'qrcode';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
-import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage } from './types';
+import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
 
 // --- SVG ICON COMPONENTS ---
 const CalendarDaysIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0h18M-4.5 12h22.5" /></svg>;
@@ -38,6 +37,8 @@ const BanknotesIcon = ({ className }: { className?: string }) => <svg xmlns="htt
 const PhotoIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>;
 const LockClosedIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 0 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>;
 const ArrowRightOnRectangleIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>;
+const EyeIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>;
+const UserPlusIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" /></svg>;
 
 
 // --- Helper Functions ---
@@ -101,6 +102,71 @@ const AppointmentCard: React.FC<AppointmentCardProps> = ({ appointment, client, 
 };
 
 type AgendaSortBy = 'default' | 'recent' | 'time_asc' | 'time_desc';
+
+// --- NEW COMPONENT: CustomSelect ---
+type SelectOption = { value: string; label: string };
+type CustomSelectProps = {
+    options: SelectOption[];
+    value: string;
+    onChange: (value: string) => void;
+};
+
+const CustomSelect: React.FC<CustomSelectProps> = ({ options, value, onChange }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const selectRef = useRef<HTMLDivElement>(null);
+    const selectedOption = options.find(opt => opt.value === value);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleSelect = (optionValue: string) => {
+        onChange(optionValue);
+        setIsOpen(false);
+    };
+
+    return (
+        <div className="relative" ref={selectRef}>
+            <button
+                type="button"
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 flex justify-between items-center text-left focus:ring-2 focus:ring-brand-red focus:border-brand-red"
+                aria-haspopup="listbox"
+                aria-expanded={isOpen}
+            >
+                <span>{selectedOption?.label || 'Selecione...'}</span>
+                <ChevronDownIcon className={`h-5 w-5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <ul className="absolute z-10 mt-1 w-full bg-brand-gray-light border border-brand-gray-light rounded-md shadow-lg max-h-60 overflow-auto focus:outline-none" role="listbox">
+                    {options.map(option => (
+                        <li
+                            key={option.value}
+                            onClick={() => handleSelect(option.value)}
+                            className={`cursor-pointer select-none relative py-2 pl-3 pr-9 text-white hover:bg-brand-red/20 ${value === option.value ? 'bg-brand-red/30' : ''}`}
+                            role="option"
+                            aria-selected={value === option.value}
+                        >
+                            <span className={`block truncate ${value === option.value ? 'font-semibold' : 'font-normal'}`}>{option.label}</span>
+                             {value === option.value && (
+                                <span className="absolute inset-y-0 right-0 flex items-center pr-2 text-brand-red">
+                                    <CheckCircleIcon className="h-5 w-5" aria-hidden="true" />
+                                </span>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+};
+
 
 const AgendaView = ({ appointments, clients, services, onStartService, onFinishService, onEditAppointment, onDeleteAppointment }: { appointments: Appointment[]; clients: Client[]; services: Service[]; onStartService: (id: string) => void; onFinishService: (id: string) => void; onEditAppointment: (appointment: Appointment) => void; onDeleteAppointment: (id: string) => void; }) => {
     const [activeAgendaTab, setActiveAgendaTab] = useState<'today' | 'general' | 'history'>('today');
@@ -207,17 +273,16 @@ const AgendaView = ({ appointments, clients, services, onStartService, onFinishS
              {activeAgendaTab === 'general' && (
                 <div className="bg-brand-gray-medium p-3 rounded-md">
                     <label htmlFor="sort-order" className="block text-sm font-medium text-gray-300 mb-1">Ordenar por</label>
-                    <select
-                        id="sort-order"
+                    <CustomSelect
                         value={sortBy}
-                        onChange={e => setSortBy(e.target.value as AgendaSortBy)}
-                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
-                    >
-                        <option value="default">Padrão (Mais Antigo)</option>
-                        <option value="recent">Mais Recente</option>
-                        <option value="time_asc">Hora (Crescente)</option>
-                        <option value="time_desc">Hora (Decrescente)</option>
-                    </select>
+                        onChange={(value) => setSortBy(value as AgendaSortBy)}
+                        options={[
+                            { value: 'default', label: 'Padrão (Mais Antigo)' },
+                            { value: 'recent', label: 'Mais Recente' },
+                            { value: 'time_asc', label: 'Hora (Crescente)' },
+                            { value: 'time_desc', label: 'Hora (Decrescente)' },
+                        ]}
+                    />
                 </div>
             )}
              {activeAgendaTab === 'history' && (
@@ -440,66 +505,26 @@ const ServicesView = ({ services, onAdd, onEdit, onDelete }: { services: Service
 );
 
 
-type ChatMessageProps = { sender: string; children?: React.ReactNode; isBot?: boolean; isTyping?: boolean; };
-const ChatMessage: React.FC<ChatMessageProps> = ({ sender, children, isBot, isTyping }) => (
-    <div className={`flex items-end gap-2 ${isBot ? 'justify-start' : 'justify-end'}`}>
-        {isBot && <div className="w-8 h-8 bg-brand-red rounded-full flex-shrink-0 mb-8" />}
-        <div className={`flex flex-col ${isBot ? 'items-start' : 'items-end'}`}>
-            <span className="text-xs text-gray-400 mb-1 px-2">{sender}</span>
-            <div className={`max-w-xs md:max-w-md p-3 rounded-2xl ${isBot ? 'bg-brand-gray-light text-gray-200 rounded-bl-none' : 'bg-brand-red/80 text-white rounded-br-none'}`}>
-                {isTyping ? <div className="flex items-center gap-1"><div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div><div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse delay-150"></div><div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse delay-300"></div></div> : children}
-            </div>
-        </div>
-    </div>
-);
-
-const FileAttachment = ({ fileName, fileType }: { fileName: string; fileType: 'pdf' | 'jpg' }) => (
-    <div className="bg-brand-gray-dark border border-white/10 rounded-lg p-3 flex items-center gap-3">
-        {fileType === 'pdf' ? 
-            <DocumentTextIcon className="w-10 h-10 text-brand-red flex-shrink-0"/> :
-            <PhotoIcon className="w-10 h-10 text-brand-red flex-shrink-0"/>
-        }
-        <div className="overflow-hidden">
-            <p className="text-white font-semibold truncate">{fileName}</p>
-            <p className="text-xs text-gray-400">{fileType === 'pdf' ? 'Documento PDF' : 'Imagem JPG'}</p>
-        </div>
-    </div>
-);
-
-const ImageAttachment = ({ file }: { file: File }) => {
-    const [imageUrl, setImageUrl] = useState('');
-
-    useEffect(() => {
-        // Create an object URL from the file
-        const url = URL.createObjectURL(file);
-        setImageUrl(url);
-
-        // Clean up the object URL when the component unmounts
-        return () => {
-            URL.revokeObjectURL(url);
-        };
-    }, [file]);
-
-    if (!imageUrl) {
-        return ( // A simple loader
-            <div className="bg-brand-gray-dark border border-white/10 rounded-lg p-3 flex items-center justify-center h-24 w-24">
-                <ArrowPathIcon className="w-6 h-6 text-gray-400 animate-spin" />
-            </div>
-        );
-    }
-
+type ChatMessageProps = { sender: 'user' | 'bot' | 'agent'; content: React.ReactNode; operatorName?: string; };
+const ChatMessage: React.FC<ChatMessageProps> = ({ sender, content, operatorName }) => {
+    const isUser = sender === 'user';
+    
     return (
-        <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="block max-w-[200px] bg-brand-gray-dark p-1 rounded-lg border border-white/10 hover:border-brand-red transition-colors">
-            <img src={imageUrl} alt={file.name} className="max-w-full h-auto rounded-md" />
-        </a>
-    );
-};
+    <div className={`flex items-end gap-2 ${isUser ? 'justify-start' : 'justify-end'}`}>
+        {sender === 'agent' && <div className="w-8 h-8 bg-blue-600 rounded-full flex-shrink-0 mb-8 flex items-center justify-center font-bold text-white">{operatorName?.charAt(0).toUpperCase()}</div>}
+        {sender === 'bot' && <div className="w-8 h-8 bg-brand-red rounded-full flex-shrink-0 mb-8 flex items-center justify-center text-white font-bold text-lg">*</div>}
+        
+        <div className={`max-w-xs md:max-w-md p-3 rounded-2xl ${isUser ? 'bg-brand-gray-light text-gray-200 rounded-bl-none' : (sender === 'bot' ? 'bg-brand-red/80 text-white rounded-br-none' : 'bg-blue-700 text-white rounded-br-none')}`}>
+            {content}
+        </div>
+    </div>
+)};
 
-const WhatsAppConnectionStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
+const WhatsAppConnectionStatus = ({ status, message }: { status: 'connected' | 'disconnected' | 'loading', message: string }) => {
     const statusConfig = {
-        connected: { text: 'Conectado 24/7', color: 'text-green-400', iconColor: 'text-green-500' },
-        disconnected: { text: 'Desconectado', color: 'text-red-400', iconColor: 'text-red-500' },
-        loading: { text: 'Conectando...', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
+        connected: { text: message || 'Conectado', color: 'text-green-400', iconColor: 'text-green-500' },
+        disconnected: { text: message || 'Desconectado', color: 'text-yellow-400', iconColor: 'text-yellow-500' },
+        loading: { text: message || 'Aguardando Conexão', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
     };
     const currentStatus = statusConfig[status];
 
@@ -516,971 +541,312 @@ const WhatsAppConnectionStatus = ({ status }: { status: 'connected' | 'disconnec
     );
 };
 
-type ConversationState = 'GREETING' | 'AWAITING_IS_CLIENT_RESPONSE' | 'AWAITING_CPF' | 'AWAITING_EXISTING_APPOINTMENT_ACTION' | 'AWAITING_CANCELLATION_CONFIRMATION' | 'AWAITING_NEW_CLIENT_NAME' | 'AWAITING_NEW_CLIENT_CPF' | 'AWAITING_PLAN_INTEREST' | 'AWAITING_PLAN_SELECTION' | 'AWAITING_SERVICE_CHOICE_METHOD' | 'AWAITING_SERVICE_SELECTION' | 'AWAITING_DATE_AND_TIME_CHOICE' | 'AWAITING_VEHICLE_CONFIRMATION' | 'AWAITING_NEW_VEHICLE_MODEL' | 'AWAITING_NEW_VEHICLE_PLATE' | 'AWAITING_NEW_VEHICLE_PROTECTION_INFO' | 'AWAITING_NEW_VEHICLE_PROTECTION_DETAILS' | 'AWAITING_PAYMENT_METHOD' | 'CONFIRMATION' | 'FINISHED';
+// Interface for chat objects, now managed locally
+interface WAChat {
+    id: string;
+    name: string;
+    lastMessage: {
+        body: string;
+        timestamp: number;
+    };
+}
+// Interface for message objects
+interface WAMessage {
+    id: { fromMe: boolean; remote: string; };
+    body: string;
+    timestamp: number;
+    isBot?: boolean;
+}
 
-type TempAppointmentData = {
-    appointmentToChangeId?: string; // For rescheduling
-    clientId?: string;
-    clientName?: string;
-    clientCpf?: string;
-    serviceIds?: string[];
-    date?: string;
-    time?: string;
-    carId?: string; // For existing car
-    carModel?: string; // For new car
-    carPlate?: string; // For new car
-    protections?: string[]; // For new car
-    paymentMethod?: Appointment['paymentMethod'];
-};
 
-const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, onClientUpdated, onAppointmentFinalized, onAppointmentRescheduled, onAppointmentCancelled, operatingHours, onConversationFinished, catalogFiles, monthlyPlans, clientPlanUsages, conversationLogs, onConnect, onStatusUpdate }: { status: 'connected' | 'disconnected' | 'loading'; services: Service[]; clients: Client[]; appointments: Appointment[]; onClientAdded: (client: Omit<Client, 'id'>) => string; onClientUpdated: (client: Client) => void; onAppointmentFinalized: (data: TempAppointmentData) => void; onAppointmentRescheduled: (id: string, date: string, time: string) => void; onAppointmentCancelled: (id: string) => void; operatingHours: OperatingHours; onConversationFinished: (log: ConversationLog) => void; catalogFiles: { id: string; file: File }[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; conversationLogs: ConversationLog[]; onConnect: () => void; onStatusUpdate: (status: 'connected' | 'disconnected' | 'loading') => void }) => {
-    const [messages, setMessages] = useState<ChatMessageData[]>([]);
-    const [isTyping, setIsTyping] = useState(false);
+const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDataUpdate: (data: any) => void; }) => {
+    const [chats, setChats] = useState<WAChat[]>([]);
+    const [activeChatId, setActiveChatId] = useState<string | null>(null);
+    const [messages, setMessages] = useState<WAMessage[]>([]);
     const [userInput, setUserInput] = useState('');
-    const [conversationState, setConversationState] = useState<ConversationState>('GREETING');
-    const [tempData, setTempData] = useState<TempAppointmentData>({ serviceIds: [] });
-    const [dateSlotOptions, setDateSlotOptions] = useState<{date: Date, slots: string[]}[]>([]);
-    const [isConversationFinished, setIsConversationFinished] = useState(false);
-    const [activeConversationId, setActiveConversationId] = useState<'live' | string>('live');
-    const [qrCodeImg, setQrCodeImg] = useState<string | null>(null);
-
-    const bottomRef = useRef<HTMLDivElement>(null);
-
-    const addMessage = (sender: 'Cliente' | 'CAR CLASS', content: React.ReactNode) => {
-        setMessages(prev => [...prev, { sender, content, isBot: sender === 'CAR CLASS' }]);
-    };
+    const [searchTerm, setSearchTerm] = useState('');
+    const wasConnected = useRef(false);
     
-    const thinkAndRespond = (responseFn: () => void, delay = 1000) => {
-        setIsTyping(true);
-        setTimeout(() => {
-            setIsTyping(false);
-            responseFn();
-        }, delay);
-    };
+    const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
 
-    const findNextAvailableDays = useCallback((count: number): Date[] => {
-        const availableDays: Date[] = [];
-        const today = new Date();
-        let checkedDay = new Date(today);
-
-        while (availableDays.length < count && checkedDay.getTime() - today.getTime() < 30 * 24 * 60 * 60 * 1000) { // Check up to 30 days
-            checkedDay.setDate(checkedDay.getDate() + 1);
-            if (operatingHours.daysOpen.includes(checkedDay.getDay())) {
-                availableDays.push(new Date(checkedDay));
-            }
-        }
-        return availableDays;
-    }, [operatingHours]);
-    
-    const getAvailableSlots = useCallback((date: Date): string[] => {
-        const dateString = date.toISOString().split('T')[0];
-        const bookedSlots = appointments
-            .filter(app => app.date === dateString && app.status !== AppointmentStatus.Finished)
-            .map(app => app.time);
-        return operatingHours.availableTimes.filter(hour => !bookedSlots.includes(hour));
-    }, [appointments, operatingHours]);
-    
-    // Polling for QR Code and Status
     useEffect(() => {
-        let intervalId: any;
-
-        if (status === 'loading') {
-            intervalId = setInterval(async () => {
-                try {
-                    const response = await fetch('/api/whatsapp/status');
+        const fetchInitialStatus = async () => {
+            try {
+                const response = await fetch('/api/whatsapp/status');
+                if (response.ok) {
                     const data = await response.json();
-                    
-                    if (data.status === 'connected') {
-                         onStatusUpdate('connected');
-                         setQrCodeImg(null);
-                    } else if (data.qrCode) {
-                         try {
-                             const url = await QRCode.toDataURL(data.qrCode);
-                             setQrCodeImg(url);
-                         } catch (err) {
-                             console.error("Error generating QR code image:", err);
-                         }
+                    setStatusMessage(data.message);
+                    setQrCode(data.qrCode || null);
+                    const newStatus = data.isConnected ? 'connected' : (data.qrCode ? 'loading' : 'disconnected');
+                    setStatus(newStatus);
+                    if (data.isConnected) {
+                        wasConnected.current = true;
                     }
-                } catch (error) {
-                    console.error("Polling error:", error);
                 }
-            }, 2000); // Check every 2 seconds
-        }
-
-        return () => {
-            if (intervalId) clearInterval(intervalId);
+            } catch (error) {
+                console.error("Failed to fetch initial WA status:", error);
+                setStatus('disconnected');
+                setStatusMessage('Erro ao obter status do servidor.');
+            }
         };
-    }, [status, onStatusUpdate]);
-
-    const startDateTimeSelection = () => {
-        const nextDays = findNextAvailableDays(3);
-        if (nextDays.length > 0) {
-            const daySlotPairs = nextDays
-                .map(date => ({ date, slots: getAvailableSlots(date) }))
-                .filter(pair => pair.slots.length > 0);
-
-            if (daySlotPairs.length > 0) {
-                setDateSlotOptions(daySlotPairs);
-                const dateOptions = daySlotPairs.map((pair, index) => {
-                    const formattedDate = pair.date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
-                    return (
-                        <li key={index} className="py-1">
-                            <strong>{index + 1}: {formattedDate}</strong>
-                            <br />
-                            <span className="text-sm text-gray-300">Horários disponíveis: {pair.slots.join(', ')}</span>
-                        </li>
-                    );
-                });
-                addMessage('CAR CLASS', <div>
-                    <p>Perfeito! Tenho estas próximas datas e horários disponíveis:</p>
-                    <ul className="list-none mt-2 space-y-2">{dateOptions}</ul>
-                    <p className="mt-2">Por favor, digite o dia e horário (ex: terça 09:00) ou o número correspondente (ex: 1 09:00).</p>
-                </div>);
-                setConversationState('AWAITING_DATE_AND_TIME_CHOICE');
-            } else {
-                addMessage('CAR CLASS', <p>Desculpe, não encontramos nenhum horário disponível nos próximos dias. Por favor, entre em contato para agendarmos.</p>);
-                setConversationState('FINISHED');
-            }
-        } else {
-            addMessage('CAR CLASS', <p>Desculpe, não encontramos nenhuma data disponível nos próximos dias. Por favor, entre em contato para agendarmos.</p>);
-            setConversationState('FINISHED');
-        }
-    };
-    
-    const finalizeAppointment = useCallback((finalData: TempAppointmentData) => {
-        // Handle rescheduling
-        if (finalData.appointmentToChangeId) {
-            const appointmentToUpdate = appointments.find(app => app.id === finalData.appointmentToChangeId);
-            if (!appointmentToUpdate) {
-                addMessage('CAR CLASS', <p>Ocorreu um erro ao encontrar seu agendamento. Por favor, entre em contato conosco.</p>);
-                setConversationState('FINISHED');
-                return;
-            }
-            
-            const client = clients.find(c => c.id === appointmentToUpdate.clientId);
-            const car = client?.cars.find(c => c.id === appointmentToUpdate.carId);
-            const serviceNames = appointmentToUpdate.serviceIds
-                .map(id => services.find(s => s.id === id)?.name)
-                .filter(Boolean)
-                .join(' + ');
-
-            onAppointmentRescheduled(finalData.appointmentToChangeId, finalData.date!, finalData.time!);
-            
-            const dateObj = new Date(finalData.date + 'T00:00:00');
-            const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
-             
-             addMessage('CAR CLASS', <div>
-                <p>Perfeito! Seu agendamento foi alterado com sucesso. Segue o resumo:</p>
-                <ul className="list-disc list-inside mt-2 text-sm space-y-1">
-                    {client && <li><strong>Cliente:</strong> {client.name}</li>}
-                    {car && <li><strong>Veículo:</strong> {car.model} ({car.plate})</li>}
-                    {serviceNames && <li><strong>Serviços:</strong> {serviceNames}</li>}
-                    <li><strong>Nova Data:</strong> {formattedDate} às {finalData.time}</li>
-                </ul>
-                <p className="mt-2">Até lá!</p>
-            </div>);
-            setConversationState('FINISHED');
-            return;
-        }
-
-        // Handle new appointment
-        const client = clients.find(c => c.id === finalData.clientId);
-        let car: Car | undefined;
-        if (finalData.carId) { car = client?.cars.find(c => c.id === finalData.carId); } 
-        else { car = { id: '', model: finalData.carModel!, plate: finalData.carPlate!, protections: finalData.protections! }; }
-        
-        if (!client || !car) {
-             addMessage('CAR CLASS', <p>Ocorreu um erro ao finalizar. Por favor, tente novamente.</p>);
-             setConversationState('FINISHED');
-             return;
-        }
-
-        const serviceNames = finalData.serviceIds && finalData.serviceIds.length > 0 ? finalData.serviceIds?.map(id => services.find(s => s.id === id)?.name).filter(Boolean).join(' + ') : 'A definir no local';
-        const dateObj = new Date(finalData.date + 'T00:00:00');
-        const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-
-        addMessage('CAR CLASS', <div>
-            <p>Agendamento confirmado! Segue o resumo:</p>
-            <ul className="list-disc list-inside mt-2 text-sm space-y-1">
-                <li><strong>Cliente:</strong> {client.name}</li>
-                <li><strong>Veículo:</strong> {car.model} ({car.plate})</li>
-                <li><strong>Serviços:</strong> {serviceNames}</li>
-                <li><strong>Data:</strong> {formattedDate} às {finalData.time}</li>
-                {finalData.paymentMethod && <li><strong>Pagamento:</strong> {finalData.paymentMethod}</li>}
-            </ul>
-            <p className="mt-2">Obrigado pela preferência!</p>
-        </div>);
-        
-        onAppointmentFinalized(finalData);
-        setConversationState('FINISHED');
-    }, [clients, services, appointments, onAppointmentFinalized, onAppointmentRescheduled]);
-
-    const handleSendMessage = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!userInput.trim()) return;
-        addMessage('Cliente', <p>{userInput}</p>);
-        processUserInput(userInput);
-        setUserInput('');
-    };
-    
-    const handleServiceSelectionLogic = async (userInput: string) => {
-        setIsTyping(true);
-
-        try {
-            const apiResponse = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userInput, services }),
-            });
-
-            if (!apiResponse.ok) {
-                throw new Error(`API error: ${apiResponse.statusText}`);
-            }
-
-            const result = await apiResponse.json();
-            
-            setIsTyping(false);
-            addMessage('CAR CLASS', <p>{result.responseText}</p>);
-
-            if (result.action === 'BOOK_SERVICE' && result.serviceIds && result.serviceIds.length > 0) {
-                const validServiceIds = result.serviceIds.filter((id: string) => services.some(s => s.id === id));
-                if (validServiceIds.length > 0) {
-                    setTempData(prev => ({ ...prev, serviceIds: [...new Set([...(prev.serviceIds || []), ...validServiceIds])] }));
-                    thinkAndRespond(startDateTimeSelection, 1500);
-                } else {
-                     addMessage('CAR CLASS', <p>Peço desculpas, mas não consegui confirmar os serviços que você mencionou em nossa lista. Poderia tentar novamente, por favor?</p>);
-                }
-            }
-            // For 'ANSWER_QUESTION' or 'CLARIFY', we've already sent the response and stay in the same state.
-
-        } catch (error) {
-            console.error("Processing error:", error);
-            setIsTyping(false);
-            addMessage('CAR CLASS', <p>Desculpe, tive um problema para entender sua resposta. Poderia digitar o nome ou código do serviço que deseja?</p>);
-        }
-    };
-
-    const processUserInput = (input: string) => {
-        const normalizedInput = normalizeText(input);
-
-        switch (conversationState) {
-            case 'AWAITING_IS_CLIENT_RESPONSE':
-                if (normalizedInput.includes('sim') || normalizedInput.includes('sou') || normalizedInput.includes('ja sou')) {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Que ótimo! Para localizar seu cadastro, por favor, digite seu CPF.</p>);
-                        setConversationState('AWAITING_CPF');
-                    });
-                } else if (normalizedInput.includes('nao') || normalizedInput.includes('novo') || normalizedInput.includes('cadastrar')) {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Seja bem-vindo(a)! Para iniciarmos seu cadastro, qual é o seu nome completo?</p>);
-                        setConversationState('AWAITING_NEW_CLIENT_NAME');
-                    });
-                } else {
-                     thinkAndRespond(() => addMessage('CAR CLASS', <p>Desculpe, não entendi. Você já é nosso cliente?</p>));
-                }
-                break;
-            case 'AWAITING_CPF':
-                if (normalizedInput.includes('cadastrar') || normalizedInput.includes('novo')) {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Entendido. Para iniciarmos seu cadastro, qual é o seu nome completo?</p>);
-                        setConversationState('AWAITING_NEW_CLIENT_NAME');
-                    });
-                    break;
-                }
-
-                const cleanCpf = input.replace(/[.-]/g, '');
-                const existingClient = clients.find(c => c.cpf.replace(/[.-]/g, '') === cleanCpf);
-                
-                if (existingClient) {
-                    const existingAppointment = appointments.find(app => app.clientId === existingClient.id && app.status !== AppointmentStatus.Finished);
-                    setTempData({ clientId: existingClient.id, clientName: existingClient.name, serviceIds: [], appointmentToChangeId: existingAppointment?.id });
-
-                    if (existingAppointment) {
-                         const serviceName = services.find(s => s.id === existingAppointment.serviceIds[0])?.name || 'serviço';
-                         const dateObj = new Date(existingAppointment.date + 'T00:00:00');
-                         const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
-                        thinkAndRespond(() => {
-                            addMessage('CAR CLASS', <p>Olá, {existingClient.name}! Verifiquei que você já tem um agendamento para {serviceName} no dia {formattedDate} às {existingAppointment.time}. Deseja alterar, cancelar ou prosseguir com um novo atendimento?</p>);
-                            setConversationState('AWAITING_EXISTING_APPOINTMENT_ACTION');
-                        });
-                    } else {
-                        const clientPlan = monthlyPlans.find(p => p.id === existingClient.monthlyPlanId);
-                        if (clientPlan) {
-                            const getFirstDayOfCurrentMonth = () => {
-                                const now = new Date();
-                                return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                            };
-                            const currentCycleStart = getFirstDayOfCurrentMonth();
-                            const usage = clientPlanUsages.find(u => u.clientId === existingClient.id && u.cycleStartDate === currentCycleStart);
-
-                            const remainingServicesText = clientPlan.includedServices.map(item => {
-                                const service = services.find(s => s.id === item.serviceId);
-                                if (!service) return null;
-                                const used = usage?.usedServices[item.serviceId] || 0;
-                                const remaining = item.quantity - used;
-                                return remaining > 0 ? `${remaining}x ${service.name}` : null;
-                            }).filter(Boolean).join(', ');
-
-                            thinkAndRespond(() => {
-                                addMessage('CAR CLASS', <div>
-                                    <p>Olá, {existingClient.name}! Vi que você é assinante do nosso <strong>{clientPlan.name}</strong>.</p>
-                                    {remainingServicesText ?
-                                        <p className="mt-2">Este mês você ainda tem disponível: <span className="font-semibold">{remainingServicesText}</span>.</p> :
-                                        <p className="mt-2">Você já utilizou todos os serviços do seu plano este mês.</p>
-                                    }
-                                    <p className="mt-2">Gostaria de agendar um serviço do plano ou ver nosso catálogo para outros serviços?</p>
-                                </div>);
-                                setConversationState('AWAITING_SERVICE_CHOICE_METHOD');
-                            });
-
-                        } else {
-                             thinkAndRespond(() => {
-                                addMessage('CAR CLASS', <p>Olá, {existingClient.name}! Cadastro localizado. Você possui ou gostaria de conhecer nossos planos mensais?</p>);
-                                setConversationState('AWAITING_PLAN_INTEREST');
-                            });
-                        }
-                    }
-                } else {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Não localizei um cadastro com este CPF. Por favor, verifique e digite novamente. Se preferir, digite "cadastrar" para criar um novo registro.</p>);
-                    });
-                }
-                break;
-            case 'AWAITING_EXISTING_APPOINTMENT_ACTION':
-                if (normalizedInput.includes('prosseguir') || normalizedInput.includes('novo') || normalizedInput.includes('outro')) {
-                    thinkAndRespond(() => {
-                        setTempData(prev => ({...prev, appointmentToChangeId: undefined }));
-                        const client = clients.find(c => c.id === tempData.clientId);
-                        if (client && !client.monthlyPlanId) {
-                             addMessage('CAR CLASS', <p>Entendido. Você possui ou gostaria de conhecer nossos planos mensais?</p>);
-                             setConversationState('AWAITING_PLAN_INTEREST');
-                        } else {
-                            addMessage('CAR CLASS', <p>Entendido. Como podemos ajudar hoje?</p>);
-                            setTimeout(() => addMessage('CAR CLASS', <div><p>Você prefere:</p><ul className="list-disc list-inside mt-2 text-sm space-y-1"><li>Ver nossa lista de serviços?</li><li>Escolher o serviço no local?</li></ul></div>), 500);
-                            setConversationState('AWAITING_SERVICE_CHOICE_METHOD');
-                        }
-                    });
-                } else if (normalizedInput.includes('alterar') || normalizedInput.includes('mudar') || normalizedInput.includes('reagendar')) {
-                     thinkAndRespond(() => {
-                        startDateTimeSelection();
-                    });
-                } else if (normalizedInput.includes('cancelar')) {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Tem certeza que deseja cancelar este agendamento? Esta ação não pode ser desfeita. (Sim/Não)</p>);
-                        setConversationState('AWAITING_CANCELLATION_CONFIRMATION');
-                    });
-                } else {
-                    thinkAndRespond(() => addMessage('CAR CLASS', <p>Não entendi. Por favor, responda com "Alterar", "Cancelar" ou "Prosseguir".</p>));
-                }
-                break;
-            case 'AWAITING_CANCELLATION_CONFIRMATION':
-                if (normalizedInput.includes('sim') || normalizedInput.includes('confirmo') || normalizedInput.includes('pode cancelar')) {
-                    thinkAndRespond(() => {
-                        if (tempData.appointmentToChangeId) {
-                            onAppointmentCancelled(tempData.appointmentToChangeId);
-                            addMessage('CAR CLASS', <p>Seu agendamento foi cancelado com sucesso. Agradecemos o contato e esperamos vê-lo em breve!</p>);
-                        } else {
-                            addMessage('CAR CLASS', <p>Ocorreu um erro ao tentar cancelar. Por favor, entre em contato conosco.</p>);
-                        }
-                        setConversationState('FINISHED');
-                    });
-                } else if (normalizedInput.includes('nao') || normalizedInput.includes('manter')) {
-                    thinkAndRespond(() => {
-                         const existingAppointment = appointments.find(app => app.id === tempData.appointmentToChangeId);
-                         const serviceName = services.find(s => s.id === existingAppointment?.serviceIds[0])?.name || 'serviço';
-                         const dateObj = new Date(existingAppointment!.date + 'T00:00:00');
-                         const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
-
-                        addMessage('CAR CLASS', <p>Ok, seu agendamento para {serviceName} no dia {formattedDate} está mantido. Deseja alterar ou prosseguir com um novo atendimento?</p>);
-                        setConversationState('AWAITING_EXISTING_APPOINTMENT_ACTION');
-                    });
-                } else {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Não entendi sua resposta. Por favor, responda com "Sim" ou "Não".</p>);
-                    });
-                }
-                break;
-             case 'AWAITING_NEW_CLIENT_NAME':
-                setTempData(prev => ({ ...prev, clientName: input }));
-                thinkAndRespond(() => {
-                    addMessage('CAR CLASS', <p>Obrigado, {input}. Agora, por favor, digite seu CPF.</p>);
-                    setConversationState('AWAITING_NEW_CLIENT_CPF');
-                });
-                break;
-            case 'AWAITING_NEW_CLIENT_CPF':
-                const cleanCpfForNewClient = input.replace(/[.-]/g, '');
-                const clientAlreadyExists = clients.find(c => c.cpf.replace(/[.-]/g, '') === cleanCpfForNewClient);
-            
-                if (clientAlreadyExists) {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Verifiquei que já existe um cadastro com este CPF em nome de {clientAlreadyExists.name}. Vamos continuar com ele.</p>);
-                    });
-            
-                    // Use a timeout to ensure the "found you" message appears before the next logical step
-                    setTimeout(() => {
-                        const existingAppointment = appointments.find(app => app.clientId === clientAlreadyExists.id && app.status !== AppointmentStatus.Finished);
-                        setTempData({ clientId: clientAlreadyExists.id, clientName: clientAlreadyExists.name, serviceIds: [], appointmentToChangeId: existingAppointment?.id });
-            
-                        if (existingAppointment) {
-                             const serviceName = services.find(s => s.id === existingAppointment.serviceIds[0])?.name || 'serviço';
-                             const dateObj = new Date(existingAppointment.date + 'T00:00:00');
-                             const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
-                            thinkAndRespond(() => {
-                                addMessage('CAR CLASS', <p>Verifiquei que você já tem um agendamento para {serviceName} no dia {formattedDate} às {existingAppointment.time}. Deseja alterar, cancelar ou prosseguir com um novo atendimento?</p>);
-                                setConversationState('AWAITING_EXISTING_APPOINTMENT_ACTION');
-                            });
-                        } else {
-                            const clientPlan = monthlyPlans.find(p => p.id === clientAlreadyExists.monthlyPlanId);
-                            if (clientPlan) {
-                                const getFirstDayOfCurrentMonth = () => {
-                                    const now = new Date();
-                                    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                                };
-                                const currentCycleStart = getFirstDayOfCurrentMonth();
-                                const usage = clientPlanUsages.find(u => u.clientId === clientAlreadyExists.id && u.cycleStartDate === currentCycleStart);
-            
-                                const remainingServicesText = clientPlan.includedServices.map(item => {
-                                    const service = services.find(s => s.id === item.serviceId);
-                                    if (!service) return null;
-                                    const used = usage?.usedServices[item.serviceId] || 0;
-                                    const remaining = item.quantity - used;
-                                    return remaining > 0 ? `${remaining}x ${service.name}` : null;
-                                }).filter(Boolean).join(', ');
-            
-                                thinkAndRespond(() => {
-                                    addMessage('CAR CLASS', <div>
-                                        <p>Vi que você é assinante do nosso <strong>{clientPlan.name}</strong>.</p>
-                                        {remainingServicesText ?
-                                            <p className="mt-2">Este mês você ainda tem disponível: <span className="font-semibold">{remainingServicesText}</span>.</p> :
-                                            <p className="mt-2">Você já utilizou todos os serviços do seu plano este mês.</p>
-                                        }
-                                        <p className="mt-2">Gostaria de agendar um serviço do plano ou ver nosso catálogo para outros serviços?</p>
-                                    </div>);
-                                    setConversationState('AWAITING_SERVICE_CHOICE_METHOD');
-                                });
-            
-                            } else {
-                                thinkAndRespond(() => {
-                                    addMessage('CAR CLASS', <p>Como podemos ajudar hoje?</p>);
-                                    setTimeout(() => addMessage('CAR CLASS', <div><p>Você prefere:</p><ul className="list-disc list-inside mt-2 text-sm space-y-1"><li>Ver nossa lista de serviços?</li><li>Escolher o serviço no local?</li></ul></div>), 500);
-                                    setConversationState('AWAITING_SERVICE_CHOICE_METHOD');
-                                });
-                            }
-                        }
-                    }, 1500);
-                } else {
-                     const newClientData = { name: tempData.clientName!, cpf: input, whatsapp: '5511999999999', cars: [] };
-                     const newClientId = onClientAdded(newClientData);
-                     setTempData(prev => ({ ...prev, clientCpf: input, clientId: newClientId })); 
-                     thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Cadastro realizado com sucesso! Você gostaria de conhecer nossos planos mensais de cuidados ou prefere ir direto para o agendamento de um serviço avulso?</p>);
-                        setConversationState('AWAITING_PLAN_INTEREST');
-                    }, 1500);
-                }
-                break;
-            case 'AWAITING_PLAN_INTEREST':
-                 if (normalizedInput.includes('sim') || normalizedInput.includes('conhecer') || normalizedInput.includes('plano')) {
-                    const planOptions = monthlyPlans.map((plan, index) => (
-                        <li key={plan.id}><strong>{index + 1}: {plan.name}</strong> - R${plan.price.toFixed(2)}/mês</li>
-                    ));
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <div>
-                            <p>Que ótimo! Temos os seguintes planos:</p>
-                            <ul className="list-none mt-2 space-y-2">{planOptions}</ul>
-                            <p className="mt-2">Deseja aderir a algum deles? Se sim, me diga o nome ou número do plano. Se não, basta dizer "não" ou "avulso".</p>
-                        </div>);
-                        setConversationState('AWAITING_PLAN_SELECTION');
-                    });
-                } else {
-                     thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Entendido. Como podemos ajudar com um serviço avulso?</p>);
-                        setTimeout(() => addMessage('CAR CLASS', <div><p>Você prefere:</p><ul className="list-disc list-inside mt-2 text-sm space-y-1"><li>Ver nossa lista de serviços?</li><li>Escolher o serviço no local?</li></ul></div>), 500);
-                        setConversationState('AWAITING_SERVICE_CHOICE_METHOD');
-                    });
-                }
-                break;
-            case 'AWAITING_PLAN_SELECTION':
-                let chosenPlan: MonthlyPlan | undefined;
-                const planNumber = (input.match(/\d+/) || [])[0];
-                if (planNumber) {
-                    chosenPlan = monthlyPlans[parseInt(planNumber, 10) - 1];
-                } else {
-                    chosenPlan = monthlyPlans.find(p => normalizeText(p.name).includes(normalizedInput));
-                }
-
-                if (chosenPlan) {
-                    const clientToUpdate = clients.find(c => c.id === tempData.clientId);
-                    if (clientToUpdate) {
-                        onClientUpdated({ ...clientToUpdate, monthlyPlanId: chosenPlan.id });
-                        thinkAndRespond(() => {
-                            addMessage('CAR CLASS', <p>Excelente! Adicionamos o <strong>{chosenPlan!.name}</strong> ao seu cadastro. Agora, vamos agendar seu primeiro serviço. Como prefere escolher?</p>);
-                            setTimeout(() => addMessage('CAR CLASS', <div><p>Você prefere:</p><ul className="list-disc list-inside mt-2 text-sm space-y-1"><li>Ver nossa lista de serviços?</li><li>Escolher o serviço no local?</li></ul></div>), 500);
-                            setConversationState('AWAITING_SERVICE_CHOICE_METHOD');
-                        });
-                    }
-                } else {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Ok, vamos prosseguir com um serviço avulso então. Como prefere escolher?</p>);
-                        setTimeout(() => addMessage('CAR CLASS', <div><p>Você prefere:</p><ul className="list-disc list-inside mt-2 text-sm space-y-1"><li>Ver nossa lista de serviços?</li><li>Escolher o serviço no local?</li></ul></div>), 500);
-                        setConversationState('AWAITING_SERVICE_CHOICE_METHOD');
-                    });
-                }
-                break;
-            case 'AWAITING_SERVICE_CHOICE_METHOD':
-                if(normalizedInput.includes('lista') || normalizedInput.includes('servicos') || normalizedInput.includes('ver') || normalizedInput.includes('pdf') || normalizedInput.includes('catalogo')) {
-                    thinkAndRespond(() => {
-                        if (catalogFiles && catalogFiles.length > 0) {
-                            addMessage('CAR CLASS', <div>
-                                <p>Claro! Aqui estão nossos catálogos de serviços. Dê uma olhada e depois me diga qual ou quais serviços você gostaria de agendar. Se tiver qualquer dúvida, pode perguntar!</p>
-                                <div className="mt-2 space-y-2">
-                                    {catalogFiles.map(({ id, file }) => {
-                                        if (file.type.startsWith('image/')) {
-                                            return <ImageAttachment key={id} file={file} />;
-                                        } else if (file.type === 'application/pdf') {
-                                            return <FileAttachment key={id} fileName={file.name} fileType="pdf" />;
-                                        }
-                                        return null;
-                                    })}
-                                </div>
-                            </div>);
-                            setConversationState('AWAITING_SERVICE_SELECTION');
-                        } else {
-                            addMessage('CAR CLASS', <p>No momento não temos um catálogo, mas posso te ajudar a escolher. Nossos principais serviços são Lavagem Detalhada, Polimento Técnico e Higienização Interna. Qual te interessa?</p>);
-                            setConversationState('AWAITING_SERVICE_SELECTION');
-                        }
-                    });
-                } else if(normalizedInput.includes('local') || normalizedInput.includes('decidir na hora') || normalizedInput.includes('pessoalmente')) {
-                    setTempData(prev => ({...prev, serviceIds: [] }));
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Sem problemas! Você pode decidir o serviço quando trouxer o veículo.</p>);
-                        setTimeout(startDateTimeSelection, 500);
-                    });
-                } else {
-                    handleServiceSelectionLogic(input);
-                }
-                break;
-            case 'AWAITING_SERVICE_SELECTION':
-                handleServiceSelectionLogic(input);
-                break;
-            case 'AWAITING_DATE_AND_TIME_CHOICE':
-                const parseDateTimeSelection = (text: string, options: {date: Date, slots: string[]}[]): { date: Date, time: string } | null => {
-                    const localNormalizedInput = normalizeText(text);
-
-                    // Try numeric format first (e.g., "1 14:00")
-                    const numericMatch = localNormalizedInput.match(/^(\d+)\s+(\d{1,2}:\d{2})$/);
-                    if (numericMatch) {
-                        const dateIndex = parseInt(numericMatch[1], 10) - 1;
-                        const time = numericMatch[2];
-                        if (options[dateIndex] && options[dateIndex].slots.includes(time)) {
-                            return { date: options[dateIndex].date, time };
-                        }
-                    }
-                    
-                    // Try natural language
-                    const dayMap: Record<string, number> = { 'domingo': 0, 'segunda': 1, 'terca': 2, 'quarta': 3, 'quinta': 4, 'sexta': 5, 'sabado': 6 };
-                    let foundDayIndex = -1;
-                    for (const dayName in dayMap) {
-                        if (localNormalizedInput.includes(dayName)) {
-                            foundDayIndex = dayMap[dayName];
-                            break;
-                        }
-                    }
-
-                    const numberWords: Record<string, number> = {
-                        'uma': 1, 'um': 1, 'duas': 2, 'dois': 2, 'tres': 3, 'quatro': 4, 'cinco': 5,
-                        'seis': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'dez': 10, 'onze': 11, 'doze': 12,
-                        'treze': 13, 'catorze': 14, 'quatorze': 14, 'quinze': 15, 'dezesseis': 16,
-                        'dezessete': 17, 'dezoito': 18, 'dezenove': 19, 'vinte': 20
-                    };
-
-                    let hour: number | null = null;
-                    let minute = 0;
-
-                    // Check for written out numbers
-                    for (const word in numberWords) {
-                        if (localNormalizedInput.includes(word)) {
-                            hour = numberWords[word];
-                            break;
-                        }
-                    }
-
-                    // Check for digits if no word was found
-                    if (hour === null) {
-                        const timeMatch = localNormalizedInput.match(/(\d{1,2})(?::(\d{2}))?/);
-                        if (timeMatch) {
-                            hour = parseInt(timeMatch[1], 10);
-                            if(timeMatch[2]) {
-                                minute = parseInt(timeMatch[2], 10);
-                            }
-                        }
-                    }
-                    
-                    // If we still have no hour or day, we can't proceed
-                    if (hour === null || foundDayIndex === -1) {
-                        return null;
-                    }
-
-                    // Adjust for AM/PM context
-                    const isTarde = localNormalizedInput.includes('tarde');
-                    const isNoite = localNormalizedInput.includes('noite');
-                    const isManha = localNormalizedInput.includes('manha');
-
-                    if ((isTarde || isNoite) && hour < 12) {
-                        hour += 12;
-                    } else if (!isManha && hour >= 1 && hour <= 7) { 
-                        // Heuristic for single-digit hours without context, assume PM for a business
-                        // e.g. "as quatro" -> 16:00
-                        hour += 12;
-                    }
-
-                    const formatTwoDigits = (n: number) => n.toString().padStart(2, '0');
-                    const targetTime = `${formatTwoDigits(hour)}:${formatTwoDigits(minute)}`;
-                    
-                    const matchingOption = options.find(opt => opt.date.getDay() === foundDayIndex);
-
-                    if (matchingOption && matchingOption.slots.includes(targetTime)) {
-                        return { date: matchingOption.date, time: targetTime };
-                    }
-                    
-                    // Fallback for cases like "quinta 16:00" that might be missed by the complex logic above
-                    const fallbackTimeMatch = localNormalizedInput.match(/(\d{1,2}:\d{2})/);
-                    if(fallbackTimeMatch) {
-                        const fallbackTime = fallbackTimeMatch[1];
-                        if (matchingOption && matchingOption.slots.includes(fallbackTime)) {
-                            return { date: matchingOption.date, time: fallbackTime };
-                        }
-                    }
-
-                    return null;
-                };
-
-                const selection = parseDateTimeSelection(input, dateSlotOptions);
-
-                if (selection) {
-                    const { date: chosenDate, time: chosenTime } = selection;
-                    const newTempData = { ...tempData, date: chosenDate.toISOString().split('T')[0], time: chosenTime };
-                    setTempData(newTempData);
-
-                    if (newTempData.appointmentToChangeId) {
-                         thinkAndRespond(() => {
-                            addMessage('CAR CLASS', <p>Para confirmar, qual será a forma de pagamento? (PIX, Cartão de Crédito, Débito, Dinheiro)</p>);
-                            setConversationState('AWAITING_PAYMENT_METHOD');
-                        });
-                        return;
-                    }
-                    
-                    const client = clients.find(c => c.id === newTempData.clientId);
-                    if (client && client.cars.length > 0) {
-                        thinkAndRespond(() => {
-                            if (client.cars.length === 1) {
-                                const car = client.cars[0];
-                                addMessage('CAR CLASS', <p>Perfeito. O serviço será para o seu {car.model} (Placa: {car.plate})? (Sim/Cadastrar Outro)</p>);
-                            } else {
-                                addMessage('CAR CLASS', <div>
-                                    <p>Para qual dos seus veículos é o serviço?</p>
-                                    <ul className="list-disc list-inside mt-2 text-sm space-y-1">
-                                        {client.cars.map((car, index) => <li key={car.id}><strong>{index + 1}:</strong> {car.model} ({car.plate})</li>)}
-                                        <li><strong>{client.cars.length + 1}:</strong> Cadastrar outro veículo</li>
-                                    </ul>
-                                </div>);
-                            }
-                            setConversationState('AWAITING_VEHICLE_CONFIRMATION');
-                        });
-                    } else {
-                        thinkAndRespond(() => {
-                            addMessage('CAR CLASS', <p>Perfeito! Para finalizar, qual o modelo do seu veículo?</p>);
-                            setConversationState('AWAITING_NEW_VEHICLE_MODEL');
-                        });
-                    }
-                } else {
-                    thinkAndRespond(() => addMessage('CAR CLASS', <p>Não consegui entender a data e horário. Por favor, tente novamente no formato "dia da semana e hora" (ex: terça 14:00) ou "número e hora" (ex: 2 14:00).</p>));
-                }
-                break;
-            case 'AWAITING_VEHICLE_CONFIRMATION':
-                const currentClient = clients.find(c => c.id === tempData.clientId);
-                if (!currentClient) return;
-
-                const proceedToPayment = (finalData: TempAppointmentData) => {
-                    setTempData(finalData);
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Para confirmar, qual será a forma de pagamento? (PIX, Cartão de Crédito, Débito, Dinheiro)</p>);
-                        setConversationState('AWAITING_PAYMENT_METHOD');
-                    }, 500);
-                }
-
-                if (normalizedInput.includes('cadastrar') || normalizedInput.includes('outro') || normalizedInput.includes('novo')) {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Entendido. Qual o modelo do novo veículo?</p>);
-                        setConversationState('AWAITING_NEW_VEHICLE_MODEL');
-                    });
-                    return;
-                }
-
-                // Case for a single car
-                if (currentClient.cars.length === 1 && (normalizedInput.includes('sim') || normalizedInput.includes('esse') || normalizedInput.includes('isso') || normalizedInput.includes('confirmado'))) {
-                    const selectedCar = currentClient.cars[0];
-                    proceedToPayment({ ...tempData, carId: selectedCar.id });
-                    return;
-                }
-
-                // Case for multiple cars
-                if (currentClient.cars.length > 1) {
-                    let selectedCar: Car | null = null;
-                    let carIndex = -1;
-                    
-                    const choiceNumber = (input.match(/\d+/) || [])[0];
-                    if (choiceNumber) carIndex = parseInt(choiceNumber, 10) - 1;
-                    else if (normalizedInput.includes('primeiro')) carIndex = 0;
-                    else if (normalizedInput.includes('segundo')) carIndex = 1;
-                    else if (normalizedInput.includes('terceiro')) carIndex = 2;
-
-                    if (carIndex !== -1 && currentClient.cars[carIndex]) {
-                        selectedCar = currentClient.cars[carIndex];
-                    } else {
-                        selectedCar = currentClient.cars.find(car =>
-                            normalizedInput.includes(normalizeText(car.model)) || normalizedInput.includes(normalizeText(car.plate).replace('-', ''))
-                        ) || null;
-                    }
-
-                    if (selectedCar) {
-                       proceedToPayment({ ...tempData, carId: selectedCar.id });
-                    } else {
-                        thinkAndRespond(() => {
-                            addMessage('CAR CLASS', <p>Não consegui identificar o veículo. Por favor, escolha um número da lista, o modelo, a placa ou digite "cadastrar outro".</p>);
-                        });
-                    }
-                } else {
-                    thinkAndRespond(() => { addMessage('CAR CLASS', <p>Opção inválida. Por favor, responda com "Sim" ou "Cadastrar Outro".</p>); });
-                }
-                break;
-            case 'AWAITING_NEW_VEHICLE_MODEL':
-                setTempData(prev => ({...prev, carModel: input}));
-                thinkAndRespond(() => {
-                    addMessage('CAR CLASS', <p>E qual a placa?</p>);
-                    setConversationState('AWAITING_NEW_VEHICLE_PLATE');
-                });
-                break;
-             case 'AWAITING_NEW_VEHICLE_PLATE':
-                setTempData(prev => ({...prev, carPlate: input}));
-                thinkAndRespond(() => {
-                     addMessage('CAR CLASS', <p>Ótimo. Agora, uma pergunta importante: seu veículo possui alguma proteção especial como PPF ou vitrificação? (Sim/Não)</p>);
-                     setConversationState('AWAITING_NEW_VEHICLE_PROTECTION_INFO');
-                });
-                break;
-            case 'AWAITING_NEW_VEHICLE_PROTECTION_INFO':
-                if (normalizedInput.includes('sim')) {
-                     thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Entendido. Por favor, diga qual ou quais proteções ele possui.</p>);
-                        setConversationState('AWAITING_NEW_VEHICLE_PROTECTION_DETAILS');
-                    });
-                } else {
-                     const finalData = { ...tempData, protections: [] };
-                     setTempData(finalData);
-                     thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Para confirmar, qual será a forma de pagamento? (PIX, Cartão de Crédito, Débito, Dinheiro)</p>);
-                        setConversationState('AWAITING_PAYMENT_METHOD');
-                    }, 500);
-                }
-                break;
-            case 'AWAITING_NEW_VEHICLE_PROTECTION_DETAILS':
-                const protections = input.split(',').map(p => p.trim());
-                const finalData = { ...tempData, protections };
-                setTempData(finalData);
-                 thinkAndRespond(() => {
-                    addMessage('CAR CLASS', <p>Para confirmar, qual será a forma de pagamento? (PIX, Cartão de Crédito, Débito, Dinheiro)</p>);
-                    setConversationState('AWAITING_PAYMENT_METHOD');
-                }, 500);
-                break;
-             case 'AWAITING_PAYMENT_METHOD':
-                let paymentMethod: Appointment['paymentMethod'] | undefined;
-                if (normalizedInput.includes('pix')) paymentMethod = 'PIX';
-                else if (normalizedInput.includes('credito')) paymentMethod = 'Cartão de Crédito';
-                else if (normalizedInput.includes('debito')) paymentMethod = 'Cartão de Débito';
-                else if (normalizedInput.includes('dinheiro')) paymentMethod = 'Dinheiro';
-
-                if (paymentMethod) {
-                    const finalData = { ...tempData, paymentMethod };
-                    setTempData(finalData);
-                    thinkAndRespond(() => finalizeAppointment(finalData), 500);
-                } else {
-                    thinkAndRespond(() => {
-                        addMessage('CAR CLASS', <p>Forma de pagamento não reconhecida. Por favor, escolha entre PIX, Cartão de Crédito, Débito ou Dinheiro.</p>);
-                    });
-                }
-                break;
-            default:
-                 addMessage('CAR CLASS', <p>Obrigado! Se precisar de algo mais, é só chamar.</p>);
-                 setConversationState('FINISHED');
-        }
-    }
-    
-    useEffect(() => {
-        if (conversationState === 'FINISHED' && !isConversationFinished) {
-            const finalMessages = [...messages];
-             // The last user message that triggered this state change isn't in `messages` yet
-            if(userInput) finalMessages.push({ sender: 'Cliente', isBot: false, content: <p>{userInput}</p>});
-
-            onConversationFinished({
-                id: `conv-${Date.now()}`,
-                clientId: tempData.clientId || 'unknown',
-                timestamp: new Date(),
-                messages: finalMessages,
-            });
-            setIsConversationFinished(true);
-        }
-    }, [conversationState, messages, userInput, onConversationFinished, isConversationFinished, tempData.clientId]);
-
-    const handleResetConversation = () => {
-        setMessages([]);
-        setIsTyping(false);
-        setConversationState('GREETING');
-        setTempData({ serviceIds: [] });
-        setIsConversationFinished(false);
-        setActiveConversationId('live');
-        
-        thinkAndRespond(() => {
-            addMessage('CAR CLASS', <p>Olá! Bem-vindo à <span className="font-bold">CAR CLASS</span>. Você já é nosso cliente? (Sim/Não)</p>);
-            setConversationState('AWAITING_IS_CLIENT_RESPONSE');
-        }, 500);
-    };
-
+        fetchInitialStatus();
+    }, [setStatus, setQrCode, setStatusMessage]);
 
     useEffect(() => {
-        if (status === 'connected' && messages.length === 0) {
-            handleResetConversation();
-        } else if (status === 'disconnected') {
-            setMessages([]);
-            setConversationState('GREETING');
-            setIsConversationFinished(false);
+        if (status === 'connected') {
+            wasConnected.current = true;
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status]);
     
+    // Long-polling for real-time events from the server
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, isTyping]);
+        if (!currentUser) return;
 
-    const commonButtonClasses = "p-3 rounded-md text-white disabled:bg-gray-500 disabled:cursor-not-allowed";
-    const commonInputDisabledState = conversationState === 'FINISHED' || isTyping || status !== 'connected' || isConversationFinished;
+        let isPolling = true;
+
+        const pollEvents = async () => {
+            while (isPolling) {
+                try {
+                    const response = await fetch('/api/whatsapp/events');
+                    if (response.status === 502) { // Timeout, normal for long-polling
+                        continue;
+                    }
+                    if (response.ok) {
+                        const event = await response.json();
+
+                        if (event.type === 'status_change') {
+                            const { isConnected, message, qrCode } = event.data;
+                            setStatusMessage(message);
+                            setQrCode(qrCode || null);
+                            const newStatus = isConnected ? 'connected' : (qrCode ? 'loading' : 'disconnected');
+                            setStatus(newStatus);
+                        } else if (event.type === 'message') {
+                            const newMessage: WAMessage = event.data;
+                            const chatId = newMessage.id.remote;
+                            addNotification(`Nova mensagem de ${event.senderName || chatId.split('@')[0]}.`);
+                            
+                            if (chatId === activeChatId) {
+                                setMessages(prev => [...prev, newMessage]);
+                            }
+
+                            setChats(prevChats => {
+                                const existingChatIndex = prevChats.findIndex(c => c.id === chatId);
+                                const updatedChat: WAChat = {
+                                    id: chatId,
+                                    name: event.senderName || chatId.split('@')[0],
+                                    lastMessage: {
+                                        body: newMessage.body,
+                                        timestamp: newMessage.timestamp,
+                                    }
+                                };
+                                let newChats = [...prevChats];
+                                if (existingChatIndex > -1) {
+                                    newChats.splice(existingChatIndex, 1);
+                                }
+                                return [updatedChat, ...newChats];
+                            });
+                        } else if (event.type === 'db_change') {
+                            addNotification("Novos dados do chatbot foram sincronizados.");
+                            onDataUpdate(event.data);
+                        }
+                    } else {
+                         await new Promise(resolve => setTimeout(resolve, 5000));
+                    }
+                } catch (error) {
+                    console.error("Long-polling error:", error);
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                }
+            }
+        };
+
+        pollEvents();
+
+        return () => {
+            isPolling = false;
+        };
+    }, [currentUser, activeChatId, setStatus, setQrCode, setStatusMessage, onDataUpdate, addNotification]);
+
+    // Fetch initial chats when connection is established
+    useEffect(() => {
+        const fetchInitialChats = async () => {
+            if (status === 'connected') {
+                 try {
+                     const response = await fetch('/api/whatsapp/chats');
+                     if (response.ok) {
+                         const data = await response.json();
+                         setChats(data);
+                         addNotification("Conversas do WhatsApp sincronizadas.");
+                     }
+                 } catch (error) {
+                     console.error("Failed to fetch initial chats:", error);
+                 }
+            }
+        };
+        fetchInitialChats();
+    }, [status, addNotification]);
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!userInput.trim() || !activeChatId) return;
+
+        const messageContent = userInput;
+        setUserInput('');
+        
+        const optimisticMessage: WAMessage = {
+            id: { fromMe: true, remote: activeChatId },
+            body: messageContent,
+            timestamp: Date.now() / 1000,
+            isBot: false,
+        };
+        setMessages(prev => [...prev, optimisticMessage]);
+
+        try {
+            const response = await fetch('/api/whatsapp/send-message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chatId: activeChatId, message: messageContent }),
+            });
+            if (!response.ok) {
+                throw new Error('Failed to send message');
+            }
+             // Update chat list on send
+            setChats(prevChats => {
+                const chatIndex = prevChats.findIndex(c => c.id === activeChatId);
+                if (chatIndex === -1) return prevChats;
+
+                const chat = { ...prevChats[chatIndex] };
+                chat.lastMessage = { body: messageContent, timestamp: Date.now() / 1000 };
+                
+                const newChats = [...prevChats];
+                newChats.splice(chatIndex, 1);
+                return [chat, ...newChats];
+            });
+        } catch (error) {
+            console.error("Error sending message:", error);
+            addNotification("Erro ao enviar mensagem.");
+            // Revert optimistic update
+            setMessages(prev => prev.filter(m => m !== optimisticMessage));
+        }
+    };
     
-    const sortedConversationLogs = useMemo(() => {
-        return [...conversationLogs].sort((a,b) => b.timestamp.getTime() - a.timestamp.getTime());
-    }, [conversationLogs]);
+    useEffect(() => {
+         const fetchMessages = async () => {
+             if (activeChatId && status === 'connected') {
+                 try {
+                     const response = await fetch(`/api/whatsapp/messages/${activeChatId}`);
+                     if (response.ok) {
+                         const data = await response.json();
+                         setMessages(data);
+                     }
+                 } catch (error) {
+                     console.error("Failed to fetch messages:", error);
+                     setMessages([]);
+                 }
+             } else {
+                 setMessages([]);
+             }
+         };
+         fetchMessages();
+     }, [activeChatId, status]);
 
-    return (
-        <div className="h-full flex flex-col">
-            <div className="p-4 pb-0">
-                <WhatsAppConnectionStatus status={status} />
-            </div>
-            
-            {status === 'connected' ? (
-                <div className="flex-grow flex overflow-hidden p-4 pt-0">
-                    {/* Sidebar */}
-                    <div className="w-1/3 max-w-sm bg-brand-gray-medium rounded-l-lg border-r border-white/10 flex flex-col">
-                        <div className="p-2 border-b border-white/10">
-                            <button 
-                                onClick={handleResetConversation}
-                                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"
-                            >
-                                <PlusIcon className="w-5 h-5"/> Nova Conversa
-                            </button>
-                        </div>
-                        <div className="overflow-y-auto flex-grow">
-                             {sortedConversationLogs.length > 0 ? (
-                                sortedConversationLogs.map(log => {
-                                const client = clients.find(c => c.id === log.clientId);
-                                return (
-                                    <div 
-                                        key={log.id} 
-                                        onClick={() => setActiveConversationId(log.id)}
-                                        className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeConversationId === log.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}
-                                    >
-                                        <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
-                                        <div className="flex-grow overflow-hidden">
-                                            <div className="flex justify-between items-baseline">
-                                                <p className="font-bold text-white truncate">{client?.name || 'Cliente Desconhecido'}</p>
-                                                <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                                            </div>
-                                            <p className="text-sm text-gray-400 truncate">Histórico de conversa</p>
-                                        </div>
-                                    </div>
-                                );
-                            })
-                            ) : (
-                                 <div className="text-center p-4 text-gray-500 text-sm">Nenhuma conversa arquivada.</div>
-                            )}
-                        </div>
-                    </div>
+    const filteredChats = useMemo(() => {
+        return chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp)
+                    .filter(chat => normalizeText(chat.name).includes(normalizeText(searchTerm)));
+    }, [chats, searchTerm]);
 
-                    {/* Main Chat Panel */}
-                    <div className="flex-1 flex flex-col bg-brand-gray-dark rounded-r-lg">
-                        {activeConversationId === 'live' ? (
-                            <>
-                                <div className="p-4 space-y-6 flex-grow overflow-y-auto">
-                                    {messages.map((msg, index) => (
-                                        <ChatMessage key={index} sender={msg.sender} isBot={msg.isBot}>{msg.content}</ChatMessage>
-                                    ))}
-                                    {isTyping && <ChatMessage sender="CAR CLASS" isBot isTyping />}
-                                    <div ref={bottomRef} />
-                                </div>
-                                <div className="p-4 border-t border-white/10">
-                                {isConversationFinished ? (
-                                    <button onClick={handleResetConversation} className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors">
-                                        <ArrowPathIcon className="w-5 h-5"/> Iniciar Nova Conversa
-                                    </button>
-                                ) : (
-                                    <form onSubmit={handleSendMessage} className="flex gap-2">
-                                        <input 
-                                            type="text" 
-                                            value={userInput}
-                                            onChange={e => setUserInput(e.target.value)}
-                                            placeholder={conversationState === 'FINISHED' ? "Conversa finalizada" : "Digite sua mensagem..."}
-                                            className="w-full bg-brand-gray-light border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red disabled:opacity-50"
-                                            disabled={commonInputDisabledState}
-                                        />
-                                        <button type="submit" className={`${commonButtonClasses} bg-brand-red hover:bg-red-700`} disabled={commonInputDisabledState}>
-                                            <PaperAirplaneIcon className="w-5 h-5" />
-                                        </button>
-                                    </form>
-                                )}
-                                </div>
-                            </>
+    if (status === 'loading' || (status === 'disconnected' && !wasConnected.current)) {
+         return (
+             <div className="h-full flex flex-col">
+                <div className="p-4"><WhatsAppConnectionStatus status={status} message={statusMessage} /></div>
+                <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
+                    <h3 className="text-xl font-bold text-white mb-4">Conecte seu WhatsApp</h3>
+                    <p className="text-gray-400 mt-2 max-w-md mb-6">Abra o WhatsApp no seu celular, vá para Aparelhos Conectados e escaneie o código abaixo.</p>
+                    <div className="bg-white p-4 rounded-lg w-[282px] h-[282px] flex items-center justify-center">
+                        {qrCode ? (
+                            <img src={qrCode} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
                         ) : (
-                            (() => {
-                                const log = conversationLogs.find(l => l.id === activeConversationId);
-                                if (!log) return <div className="flex items-center justify-center h-full text-gray-500">Conversa não encontrada.</div>;
-                                return (
-                                     <div className="p-4 space-y-6 flex-grow overflow-y-auto">
-                                        {log.messages.map((msg, index) => (
-                                            <ChatMessage key={index} sender={msg.sender} isBot={msg.isBot}>{msg.content}</ChatMessage>
-                                        ))}
-                                    </div>
-                                );
-                            })()
+                            <div className="w-12 h-12 border-4 border-dashed border-gray-400 rounded-full animate-spin"></div>
                         )}
                     </div>
                 </div>
-            ) : status === 'disconnected' ? (
+             </div>
+        );
+    }
+    
+    if (status === 'disconnected' && wasConnected.current) {
+        return (
+             <div className="h-full flex flex-col">
+                <div className="p-4"><WhatsAppConnectionStatus status={status} message={statusMessage} /></div>
                 <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
-                    <ChatBubbleOvalLeftEllipsisIcon className="w-16 h-16 text-gray-500 mb-4"/>
-                    <h3 className="text-xl font-bold text-white">Conecte-se ao WhatsApp</h3>
-                    <p className="text-gray-400 mt-2 max-w-md mb-6">Inicie o serviço de atendimento 24/7 para visualizar e gerenciar as conversas com os clientes.</p>
-                    <button onClick={onConnect} className="bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-6 rounded-md flex items-center gap-2 text-lg">
-                        <PhoneIcon className="w-6 h-6"/> Conectar
-                    </button>
+                     <ChatBubbleOvalLeftEllipsisIcon className="w-16 h-16 text-gray-500 mb-4"/>
+                    <h3 className="text-xl font-bold text-white">WhatsApp Reconectando</h3>
+                    <p className="text-gray-400 mt-2 max-w-md mb-6">A conexão foi perdida. Estamos tentando reconectar automaticamente. Isso pode levar alguns momentos.</p>
+                     <ArrowPathIcon className="w-10 h-10 text-yellow-400 animate-spin" />
                 </div>
-            ) : ( // loading
-                 <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
-                    {qrCodeImg ? (
-                        <img src={qrCodeImg} alt="QR Code WhatsApp" className="w-64 h-64 mb-4 border-4 border-white/10 rounded-lg" />
+            </div>
+        );
+    }
+    
+    return (
+        <div className="h-full flex flex-col">
+            <div className="p-4 pb-0"><WhatsAppConnectionStatus status={status} message={statusMessage} /></div>
+            <div className="flex-grow flex overflow-hidden p-4 pt-0">
+                {/* Sidebar com conversas */}
+                <div className="w-1/3 max-w-sm bg-brand-gray-medium rounded-l-lg border-r border-white/10 flex flex-col">
+                    <div className="p-2 border-b border-white/10">
+                        <FormInput label="" placeholder="Buscar conversa..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                    </div>
+                    <div className="overflow-y-auto flex-grow">
+                        {filteredChats.map(chat => (
+                             <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
+                                <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
+                                <div className="flex-grow overflow-hidden">
+                                    <div className="flex justify-between items-baseline">
+                                        <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
+                                        <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                                    </div>
+                                    <p className="text-sm text-gray-400 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                {/* Janela de Chat */}
+                <div className="flex-1 flex flex-col bg-brand-gray-dark rounded-r-lg">
+                    {activeChat ? (
+                         <>
+                            <div className="p-3 border-b border-white/10 flex items-center gap-3">
+                                <UserCircleIcon className="w-10 h-10 text-gray-400" />
+                                <p className="font-bold text-white">{activeChat.name}</p>
+                            </div>
+                            <div className="p-4 space-y-4 flex-grow overflow-y-auto">
+                                {messages.map((msg, index) => (
+                                    <ChatMessage 
+                                        key={index} 
+                                        sender={msg.id.fromMe ? (msg.isBot ? 'bot' : 'agent') : 'user'} 
+                                        content={<p>{msg.body}</p>} 
+                                        operatorName={currentUser.username}
+                                    />
+                                ))}
+                            </div>
+                            <div className="p-4 border-t border-white/10">
+                                <form onSubmit={handleSendMessage} className="flex gap-2">
+                                    <input type="text" value={userInput} onChange={e => setUserInput(e.target.value)} placeholder="Digite sua mensagem..." className="w-full bg-brand-gray-light border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"/>
+                                    <button type="submit" className="p-3 rounded-md text-white bg-brand-red hover:bg-red-700"><PaperAirplaneIcon className="w-5 h-5" /></button>
+                                </form>
+                            </div>
+                        </>
                     ) : (
-                        <QrCodeIcon className="w-48 h-48 text-white mb-4 animate-pulse"/>
+                         <div className="flex items-center justify-center h-full text-center text-gray-500">
+                             <div>
+                                 <ChatBubbleLeftRightIcon className="w-16 h-16 mx-auto mb-4"/>
+                                <p className="text-lg">Selecione uma conversa</p>
+                                <p>Escolha uma conversa na lista para começar a conversar.</p>
+                            </div>
+                         </div>
                     )}
-                    <h3 className="text-xl font-bold text-white">Aguardando Conexão</h3>
-                    <p className="text-gray-400 mt-2 max-w-md">Abra o WhatsApp em seu celular e escaneie o QR Code acima.</p>
-                    <p className="text-yellow-400 mt-4 text-sm">O sistema verificará a conexão automaticamente...</p>
                 </div>
-            )}
+            </div>
         </div>
     );
 };
@@ -1618,46 +984,51 @@ const AutomatedMessageModal: React.FC<AutomatedMessageModalProps> = ({ isOpen, m
 };
 
 const SettingsView = ({
+    currentUser,
+    users,
     operatingHours,
     automatedMessages,
     monthlyPlans,
     services,
-    credentials,
     onSave,
     onFileUpload,
     catalogFiles,
     isProcessingFile,
     onFileDelete,
+    onUserSave,
+    onUserDelete,
+    onEditUser,
 }: {
+    currentUser: User;
+    users: User[];
     operatingHours: OperatingHours;
     automatedMessages: AutomatedMessage[];
     monthlyPlans: MonthlyPlan[];
     services: Service[];
-    credentials: { login: string; password: string };
-    onSave: (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], credentials: { login: string; password: string; } }) => void;
+    onSave: (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => void;
     onFileUpload: (files: File[]) => void;
-    catalogFiles: { id: string; file: File }[];
+    catalogFiles: { id: string; file: { name: string, type: string } }[];
     isProcessingFile: boolean;
     onFileDelete: (fileId: string) => void;
+    onUserSave: (user: User) => void;
+    onUserDelete: (userId: string) => void;
+    onEditUser: (user: User) => void;
 }) => {
     const [localOperatingHours, setLocalOperatingHours] = useState<OperatingHours>(operatingHours);
     const [localMessages, setLocalMessages] = useState<AutomatedMessage[]>(automatedMessages);
     const [localPlans, setLocalPlans] = useState<MonthlyPlan[]>(monthlyPlans);
-    const [localCredentials, setLocalCredentials] = useState(credentials);
+    const [localUsers, setLocalUsers] = useState<User[]>(users);
     const [newTime, setNewTime] = useState('');
     const [editingMessage, setEditingMessage] = useState<AutomatedMessage | 'new' | null>(null);
     const [editingPlan, setEditingPlan] = useState<MonthlyPlan | 'new' | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    useEffect(() => setLocalUsers(users), [users]);
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
             onFileUpload(Array.from(e.target.files));
         }
-    };
-
-    const handleCredentialsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setLocalCredentials(prev => ({ ...prev, [name]: value }));
     };
 
     const handleDayToggle = (dayIndex: number) => {
@@ -1719,7 +1090,7 @@ const SettingsView = ({
             operatingHours: localOperatingHours,
             automatedMessages: localMessages,
             monthlyPlans: localPlans,
-            credentials: localCredentials,
+            users: localUsers,
         });
     };
 
@@ -1733,13 +1104,28 @@ const SettingsView = ({
 
     return (
         <div className="p-4 space-y-6">
-             <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                <h3 className="text-xl font-bold text-brand-red mb-4">Acesso ao Sistema</h3>
-                <div className="space-y-4">
-                    <FormInput label="Usuário (Login)" name="login" value={localCredentials.login} onChange={handleCredentialsChange} placeholder="Ex: admin" />
-                    <FormInput label="Senha" name="password" type="password" value={localCredentials.password} onChange={handleCredentialsChange} placeholder="••••••••" />
+             {currentUser.role === 'owner' && (
+                <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-bold text-brand-red">Gerenciamento de Usuários</h3>
+                        <button onClick={() => onEditUser({} as User)} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><UserPlusIcon className="w-4 h-4" /> Novo Usuário</button>
+                    </div>
+                    <div className="space-y-3">
+                        {users.map(user => (
+                            <div key={user.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
+                                <div>
+                                    <p className="font-semibold text-white">{user.username} <span className="text-xs bg-brand-red/50 text-red-300 px-2 py-0.5 rounded-full ml-2">{user.role}</span></p>
+                                    <p className="text-sm text-gray-400">Acesso: {Object.entries(user.permissions).filter(([, allowed]) => allowed).map(([tabId]) => ALL_TABS.find(t=>t.id === tabId)?.label).join(', ')}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => onEditUser(user)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
+                                    {user.role !== 'owner' && <button onClick={() => onUserDelete(user.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
                 <h3 className="text-xl font-bold text-brand-red mb-4">Dias de Funcionamento</h3>
@@ -1785,7 +1171,7 @@ const SettingsView = ({
                     <p className="text-sm text-gray-400 mb-3">Estes arquivos serão processados para atualizar sua lista de serviços. Todos os arquivos serão enviados para os clientes no chat.</p>
                     <input
                         type="file"
-                        accept=".pdf,.jpg,.jpeg"
+                        accept=".pdf,.jpg,.jpeg,.png"
                         ref={fileInputRef}
                         onChange={handleFileChange}
                         className="hidden"
@@ -1842,7 +1228,7 @@ const SettingsView = ({
             <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-bold text-brand-red">Mensagens Automáticas</h3>
-                    <button onClick={() => setEditingMessage('new')} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><PlusIcon className="w-4 h-4" /> Nova Mensagem</button>
+                    <button onClick={() => setEditingMessage('new')} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><PlusIcon className="w-4 h-4" /> Novo Mensagem</button>
                 </div>
                 <div className="space-y-3">
                     {localMessages.map(msg => (
@@ -1881,6 +1267,7 @@ const SettingsView = ({
     );
 };
 
+// ... (Other components like BarChart, DashboardView, etc. remain mostly the same)
 const BarChart = ({ data, labels }: { data: number[]; labels: string[] }) => {
     const maxValue = Math.max(...data, 1); // Avoid division by zero
     return (
@@ -1927,15 +1314,15 @@ const DashboardView = ({ appointments, clients, services, monthlyPlans }: { appo
     }, [appointments, activeStartDate, activeEndDate]);
 
     // --- METRICS ---
-    const getRevenue = (apps: Appointment[]) => apps
+    const getRevenue = useCallback((apps: Appointment[]) => apps
         .flatMap(a => a.serviceIds.map(serviceId => services.find(s => s.id === serviceId)?.price || 0))
-        .reduce((sum, price) => sum + price, 0);
+        .reduce((sum, price) => sum + price, 0), [services]);
 
     const dailyRevenue = useMemo(() => {
         const todayStr = getToday();
         const todaysAppointments = appointments.filter(a => a.status === AppointmentStatus.Finished && a.date === todayStr);
         return getRevenue(todaysAppointments);
-    }, [appointments, services]);
+    }, [appointments, getRevenue]);
 
     const revenueForPeriod = getRevenue(filteredFinishedAppointments);
 
@@ -1983,7 +1370,7 @@ const DashboardView = ({ appointments, clients, services, monthlyPlans }: { appo
             data.push(monthRevenue);
         }
         return { labels, data };
-    }, [appointments, services]);
+    }, [appointments, getRevenue]);
 
     // Serviços Mais/Menos Vendidos (based on filter)
     const serviceCounts = filteredFinishedAppointments
@@ -2209,8 +1596,6 @@ const AppointmentForm = ({ appointment, clients, services, monthlyPlans, clientP
         const plan = monthlyPlans.find(p => p.id === client?.monthlyPlanId);
         const isAnyServiceInPlan = formData.serviceIds.some(sid => plan?.includedServices.some(is => is.serviceId === sid));
         
-        // Fix: Correctly handle the paymentMethod type before saving.
-        // An empty string from the form is converted to `undefined`, and a valid value is cast to the correct type.
         const dataToSave: Omit<Appointment, 'id'> & { id?: string } = {
             ...formData,
             isPlanService: isAnyServiceInPlan,
@@ -2312,10 +1697,8 @@ const MonthlyPlanModal = ({ isOpen, plan, services, onSave, onClose }: { isOpen:
         setFormData(prev => {
             const existing = prev.includedServices.find(s => s.serviceId === serviceId);
             if (existing) {
-                // Update quantity or remove if quantity is 0
                 return { ...prev, includedServices: quantity > 0 ? prev.includedServices.map(s => s.serviceId === serviceId ? { ...s, quantity } : s) : prev.includedServices.filter(s => s.serviceId !== serviceId) };
             } else if (quantity > 0) {
-                // Add new service
                 return { ...prev, includedServices: [...prev.includedServices, { serviceId, quantity }] };
             }
             return prev;
@@ -2400,17 +1783,17 @@ const ServiceForm = ({ service, onSave, onCancel }: { service: Service | null; o
 };
 
 type LoginViewProps = {
-    onLogin: (login: string, password: string) => void;
+    onLogin: (username: string, password: string) => void;
     error: string;
 };
 
 const LoginView: React.FC<LoginViewProps> = ({ onLogin, error }) => {
-    const [login, setLogin] = useState('');
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onLogin(login, password);
+        onLogin(username, password);
     };
 
     return (
@@ -2426,11 +1809,11 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin, error }) => {
                         <UserCircleIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <FormInput 
                             label="" 
-                            id="login"
-                            name="login"
+                            id="username"
+                            name="username"
                             type="text"
-                            value={login}
-                            onChange={e => setLogin(e.target.value)}
+                            value={username}
+                            onChange={e => setUsername(e.target.value)}
                             placeholder="Usuário"
                             className="pl-10"
                             required 
@@ -2446,6 +1829,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin, error }) => {
                             value={password}
                             onChange={e => setPassword(e.target.value)}
                             placeholder="Senha"
+                            className="pl-10"
                         />
                     </div>
                     {error && <p className="text-red-500 text-xs italic mb-4 text-center">{error}</p>}
@@ -2463,6 +1847,79 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin, error }) => {
     );
 };
 
+// ... Notification Panel Component
+const NotificationPanel = ({ notifications, onClear, onMarkAsRead }: { notifications: NotificationItem[], onClear: (id: string) => void, onMarkAsRead: (id: string) => void }) => {
+    return (
+        <div className="absolute top-14 right-4 w-80 bg-brand-gray-medium rounded-lg shadow-lg border border-white/10 z-50">
+            <div className="p-3 border-b border-white/10">
+                <h4 className="font-bold text-white">Notificações</h4>
+            </div>
+            <div className="max-h-96 overflow-y-auto">
+                {notifications.length > 0 ? notifications.map(n => (
+                    <div key={n.id} onClick={() => onMarkAsRead(n.id)} className={`p-3 border-b border-white/10 text-sm cursor-pointer hover:bg-brand-gray-light ${!n.read ? 'bg-brand-red/10' : ''}`}>
+                        <p className={`text-gray-200 ${!n.read ? 'font-semibold' : ''}`}>{n.message}</p>
+                        <p className="text-xs text-gray-500 mt-1">{new Date(n.timestamp).toLocaleString('pt-BR')}</p>
+                    </div>
+                )) : <p className="text-gray-400 text-center p-4">Nenhuma notificação.</p>}
+            </div>
+        </div>
+    );
+};
+
+// ... User Form Modal Component
+const UserForm = ({ user, onSave, onCancel }: { user: User | null; onSave: (user: Omit<User, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
+    const [formData, setFormData] = useState<Omit<User, 'id'>>({ username: '', password: '', role: 'employee', permissions: {} });
+
+    useEffect(() => {
+        if (user) {
+            setFormData({
+                username: user.username || '',
+                password: '', // Always clear password for security
+                role: user.role || 'employee',
+                permissions: user.permissions || {}
+            });
+        }
+    }, [user]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
+    const handlePermissionChange = (tabId: string, isAllowed: boolean) => {
+        setFormData(p => ({ ...p, permissions: { ...p.permissions, [tabId]: isAllowed } }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave({ ...formData, id: user?.id });
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <FormInput label="Nome de Usuário" name="username" value={formData.username} onChange={handleChange} required />
+            <FormInput label="Senha" name="password" type="password" value={formData.password} onChange={handleChange} placeholder={user?.id ? "Deixe em branco para não alterar" : ""} required={!user?.id} />
+            <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Permissões de Acesso</label>
+                <div className="space-y-2 bg-brand-gray-dark p-3 rounded-md border border-brand-gray-light">
+                    {ALL_TABS.map(tab => (
+                        <div key={tab.id} className="flex items-center">
+                            <input
+                                id={`perm-${tab.id}`}
+                                type="checkbox"
+                                checked={!!formData.permissions[tab.id]}
+                                onChange={(e) => handlePermissionChange(tab.id, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-brand-red focus:ring-brand-red"
+                            />
+                            <label htmlFor={`perm-${tab.id}`} className="ml-2 text-sm text-gray-300">{tab.label}</label>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Usuário</button>
+            </div>
+        </form>
+    );
+};
+
 
 const App = () => {
     const [clients, setClients] = useState<Client[]>(MOCK_CLIENTS);
@@ -2474,9 +1931,10 @@ const App = () => {
     const [conversationLogs, setConversationLogs] = useState<ConversationLog[]>([]);
     const [isProcessingFile, setIsProcessingFile] = useState(false);
     
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loginError, setLoginError] = useState('');
-    const [credentials, setCredentials] = useState({ login: 'admin', password: '' });
+    const [users, setUsers] = useState<User[]>([]);
 
     const [operatingHours, setOperatingHours] = useState<OperatingHours>({
          daysOpen: [1, 2, 3, 4, 5, 6], // Mon-Sat
@@ -2491,317 +1949,349 @@ const App = () => {
     const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
     const [editingService, setEditingService] = useState<Service | null>(null);
     const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     
-    const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: File }[]>([]);
-    
-    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>(
-        () => (localStorage.getItem('whatsappStatus') as 'connected' | null) || 'disconnected'
-    );
+    const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: { name: string, type: string } }[]>([]);
+    const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
+    const [qrCode, setQrCode] = useState<string | null>(null);
+    const [statusMessage, setStatusMessage] = useState('Inicializando...');
 
-    useEffect(() => {
-        if (whatsAppStatus !== 'loading') { // prevent saving 'loading' state on reload
-            localStorage.setItem('whatsappStatus', whatsAppStatus);
-        }
-    }, [whatsAppStatus]);
-
-
-    const addNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    const addNotification = useCallback((message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
-         setNotifications(prev => [newNotif, ...prev]);
-         // In a real app, you might have different visuals for success/error
-    };
+         setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
+    }, []);
     
-    const handleClientSave = (clientData: Omit<Client, 'id'> & { id?: string }) => {
-         if (clientData.id) {
-             setClients(prev => prev.map(c => c.id === clientData.id ? { ...c, ...clientData } as Client : c));
-             addNotification(`Cliente "${clientData.name}" atualizado com sucesso.`);
-         } else {
-             const newClient = { ...clientData, id: `c${Date.now()}`, cars: clientData.cars || [] } as Client;
-             setClients(prev => [...prev, newClient]);
-             addNotification(`Novo cliente "${clientData.name}" adicionado.`);
-         }
-         setIsClientModalOpen(false);
-         setEditingClient(null);
-    };
-
-    const handleClientDelete = (id: string) => {
-         if (window.confirm('Tem certeza que deseja excluir este cliente e todos os seus dados?')) {
-             const clientName = clients.find(c => c.id === id)?.name;
-             setClients(prev => prev.filter(c => c.id !== id));
-             addNotification(`Cliente "${clientName}" excluído.`);
-         }
-    };
-    
-    const handleAppointmentSave = (appointmentData: Omit<Appointment, 'id'> & { id?: string }) => {
-        if (appointmentData.id) {
-             setAppointments(prev => prev.map(a => a.id === appointmentData.id ? { ...a, ...appointmentData } as Appointment : a));
-             addNotification(`Agendamento atualizado.`);
-        } else {
-            const newAppointment: Appointment = { ...appointmentData, id: `a${Date.now()}`};
-            setAppointments(prev => [...prev, newAppointment]);
-            addNotification(`Novo agendamento criado.`);
-        }
-        setIsAppointmentModalOpen(false);
-        setEditingAppointment(null);
-    };
-    
-    const handleAppointmentDelete = (id: string) => {
-         if (window.confirm('Tem certeza que deseja excluir este agendamento?')) {
-             setAppointments(prev => prev.filter(a => a.id !== id));
-             addNotification(`Agendamento excluído.`);
-         }
-    };
-
-    const handleServiceSave = (serviceData: Omit<Service, 'id'> & { id?: string }) => {
-        if (serviceData.id) {
-            setServices(prev => prev.map(s => s.id === serviceData.id ? { ...s, ...serviceData } as Service : s));
-            addNotification(`Serviço "${serviceData.name}" atualizado com sucesso.`);
-        } else {
-            const newService = { ...serviceData, id: `s${Date.now()}` } as Service;
-            setServices(prev => [...prev, newService]);
-            addNotification(`Novo serviço "${serviceData.name}" adicionado.`);
-        }
-        setIsServiceModalOpen(false);
-        setEditingService(null);
-    };
-
-    const handleServiceDelete = (id: string) => {
-        if (window.confirm('Tem certeza que deseja excluir este serviço? Ele pode estar associado a agendamentos e planos.')) {
-            const serviceName = services.find(s => s.id === id)?.name;
-            setServices(prev => prev.filter(s => s.id !== id));
-            addNotification(`Serviço "${serviceName}" excluído.`);
-        }
-    };
-
-    const handleFileUpload = async (files: File[]) => {
-        const validFiles = files.filter(file => ['application/pdf', 'image/jpeg', 'image/jpg'].includes(file.type));
-    
-        if (validFiles.length === 0) {
-            addNotification("Nenhum arquivo válido selecionado (somente PDF ou JPG).", 'error');
-            return;
-        }
-        
-        setIsProcessingFile(true);
-        addNotification(`Processando ${validFiles.length} arquivo(s)...`);
-    
-        const allExtractedServices: Service[] = [];
-        let filesProcessed = 0;
-        let successfulFiles: { id: string; file: File }[] = [];
-    
-        for (const [index, file] of validFiles.entries()) {
-            try {
-                const fileId = `file-${Date.now()}-${index}`;
-                const formData = new FormData();
-                formData.append('catalogFile', file);
-
-                const response = await fetch('/api/process-catalog', {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Failed to process ${file.name}: ${await response.text()}`);
-                }
-
-                const extractedServicesFromFile = await response.json();
-    
-                const newServicesFromFile: Service[] = extractedServicesFromFile.map((s: any, serviceIndex: number) => ({
-                    ...s,
-                    id: `s-gen-${fileId}-${serviceIndex}`,
-                    sourceFileId: fileId,
-                }));
-                
-                allExtractedServices.push(...newServicesFromFile);
-                filesProcessed++;
-                successfulFiles.push({ id: fileId, file });
-    
-            } catch (error) {
-                console.error(`Error processing file ${file.name}:`, error);
-                addNotification(`Ocorreu um erro ao processar o arquivo "${file.name}".`, 'error');
-            }
-        }
-    
-        if (allExtractedServices.length > 0) {
-            setServices(prev => [...prev, ...allExtractedServices]);
-            setCatalogFiles(prev => [...prev, ...successfulFiles]);
-            addNotification(`Processamento concluído! ${filesProcessed}/${validFiles.length} arquivos processados. ${allExtractedServices.length} novos serviços foram adicionados.`);
-        } else if (filesProcessed === 0) {
-            addNotification("Nenhum serviço pôde ser extraído dos arquivos.", 'error');
-        }
-    
-        setIsProcessingFile(false);
-    };
-
-    const handleFileDelete = (fileIdToDelete: string) => {
-        if (window.confirm('Tem certeza que deseja excluir este arquivo? Todos os serviços extraídos dele também serão removidos.')) {
-            const fileName = catalogFiles.find(f => f.id === fileIdToDelete)?.file.name;
-            setCatalogFiles(prev => prev.filter(f => f.id !== fileIdToDelete));
-            setServices(prev => prev.filter(s => s.sourceFileId !== fileIdToDelete));
-            addNotification(`Arquivo "${fileName}" e seus serviços foram removidos.`);
-        }
-    };
-    
-    const handleConnectWhatsApp = async () => {
-        setWhatsAppStatus('loading');
+    const saveData = useCallback(async (dataToSave: { [key: string]: any }) => {
         try {
-            await fetch('/api/whatsapp/start', { method: 'POST' });
-            addNotification('Iniciando conexão com WhatsApp...');
+            const response = await fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dataToSave),
+            });
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
+        } catch (error) {
+            console.error("Failed to save data:", error);
+            addNotification("Erro: Falha ao salvar os dados no servidor.");
+        }
+    }, [addNotification]);
+    
+    const handleDataUpdateFromBot = useCallback((data: any) => {
+        if (!data) return;
+        // Robust update: If the server sends a full list, replace the local state.
+        if (data.clients) {
+            setClients(data.clients);
+        }
+        if (data.appointments) {
+            setAppointments(data.appointments);
+        }
+    }, []);
+
+    const loadData = useCallback(async () => {
+        try {
+            const response = await fetch('/api/data');
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
+            const data = await response.json();
+            setClients(data.clients || []);
+            setServices(data.services || []);
+            setAppointments(data.appointments || []);
+            setMonthlyPlans(data.monthlyPlans || []);
+            setClientPlanUsages(data.clientPlanUsages || []);
+            setConversationLogs(data.conversationLogs || []);
+            setUsers(data.users || []);
+            setCatalogFiles(data.catalogFiles || []);
+             if (data.operatingHours) setOperatingHours(data.operatingHours);
+            if (data.automatedMessages) setAutomatedMessages(data.automatedMessages);
+        } catch (error) {
+            console.error("Failed to load data from server:", error);
+            addNotification("Erro: Não foi possível carregar os dados do servidor.");
+        } finally {
+            setIsLoading(false);
+        }
+    }, [addNotification]);
+    
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+
+    const handleClientSave = useCallback((clientData: Omit<Client, 'id'> & { id?: string }) => {
+        setClients(prevClients => {
+            let newClients;
+            if (clientData.id) {
+                newClients = prevClients.map(c => c.id === clientData.id ? { ...c, ...clientData } as Client : c);
+                addNotification(`Cliente "${clientData.name}" atualizado.`);
+            } else {
+                const newClient = { ...clientData, id: `c${Date.now()}`, cars: clientData.cars || [] } as Client;
+                newClients = [...prevClients, newClient];
+                addNotification(`Novo cliente "${clientData.name}" adicionado.`);
+            }
+            saveData({ clients: newClients });
+            return newClients;
+        });
+        setIsClientModalOpen(false);
+    }, [addNotification, saveData]);
+
+    const handleClientDelete = useCallback((id: string) => {
+        if (window.confirm('Tem certeza?')) {
+            setClients(prevClients => {
+                const newClients = prevClients.filter(c => c.id !== id);
+                saveData({ clients: newClients });
+                return newClients;
+            });
+        }
+    }, [saveData]);
+    
+    const handleAppointmentSave = useCallback((appointmentData: Omit<Appointment, 'id'> & { id?: string }) => {
+        setAppointments(prevAppointments => {
+            let newAppointments;
+            if (appointmentData.id) {
+                newAppointments = prevAppointments.map(a => a.id === appointmentData.id ? { ...a, ...appointmentData } as Appointment : a);
+                addNotification(`Agendamento atualizado.`);
+            } else {
+                const newAppointment: Appointment = { ...appointmentData, id: `a${Date.now()}`};
+                newAppointments = [...prevAppointments, newAppointment];
+                const clientName = clients.find(c => c.id === newAppointment.clientId)?.name || 'Cliente';
+                const appointmentDate = new Date(newAppointment.date + 'T00:00:00').toLocaleDateString('pt-BR');
+                addNotification(`${clientName} agendou para ${appointmentDate} às ${newAppointment.time}.`);
+            }
+            saveData({ appointments: newAppointments });
+            return newAppointments;
+        });
+        setIsAppointmentModalOpen(false);
+    }, [addNotification, clients, saveData]);
+    
+    const handleAppointmentDelete = useCallback((id: string) => {
+        if (window.confirm('Tem certeza?')) {
+            setAppointments(prevAppointments => {
+                const newAppointments = prevAppointments.filter(a => a.id !== id);
+                saveData({ appointments: newAppointments });
+                return newAppointments;
+            });
+        }
+    }, [saveData]);
+
+    const handleServiceSave = useCallback((serviceData: Omit<Service, 'id'> & { id?: string }) => {
+        setServices(prevServices => {
+            let newServices;
+            if (serviceData.id) {
+                newServices = prevServices.map(s => s.id === serviceData.id ? { ...s, ...serviceData } as Service : s);
+            } else {
+                newServices = [...prevServices, { ...serviceData, id: `s${Date.now()}` } as Service];
+            }
+            saveData({ services: newServices });
+            return newServices;
+        });
+        setIsServiceModalOpen(false);
+    }, [saveData]);
+
+    const handleServiceDelete = useCallback((id: string) => {
+        if (window.confirm('Tem certeza?')) {
+            setServices(prevServices => {
+                const newServices = prevServices.filter(s => s.id !== id);
+                saveData({ services: newServices });
+                return newServices;
+            });
+        }
+    }, [saveData]);
+
+    const handleFileUpload = useCallback(async (files: File[]) => {
+        setIsProcessingFile(true);
+        const formData = new FormData();
+        files.forEach(file => {
+            formData.append('catalogs', file);
+        });
+
+        try {
+            const response = await fetch('/api/upload-catalog', {
+                method: 'POST',
+                body: formData,
+            });
+            if (!response.ok) {
+                throw new Error('Falha no upload do catálogo.');
+            }
+            const updatedData = await response.json();
+            setCatalogFiles(updatedData.catalogFiles || []);
+            setServices(updatedData.services || services);
+            addNotification("Catálogo(s) enviado com sucesso!");
         } catch (error) {
             console.error(error);
-            setWhatsAppStatus('disconnected');
-            addNotification('Erro ao iniciar conexão.', 'error');
+            addNotification("Erro ao enviar catálogo.");
+        } finally {
+            setIsProcessingFile(false);
         }
-    };
+    }, [addNotification, services]);
 
-    const handleStartService = (id: string) => {
-         setAppointments(prev => prev.map(app => app.id === id ? { ...app, status: AppointmentStatus.InProgress } : app));
-    };
 
-    const handleFinishService = (id: string) => {
-         const app = appointments.find(a => a.id === id);
-         if(!app) return;
-         
-         const client = clients.find(c => c.id === app.clientId);
-         const plan = monthlyPlans.find(p => p.id === client?.monthlyPlanId);
-         
-         if (client && plan && app.isPlanService) {
-             const getFirstDayOfCurrentMonth = () => {
-                const now = new Date();
-                return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-            };
-            const currentCycleStart = getFirstDayOfCurrentMonth();
+    const handleFileDelete = useCallback((fileIdToDelete: string) => {
+        if (window.confirm('Tem certeza que deseja remover este arquivo?')) {
+            // Optimistic update on frontend
+             setCatalogFiles(prev => prev.filter(f => f.id !== fileIdToDelete));
 
-            setClientPlanUsages(prev => {
-                const usageIndex = prev.findIndex(u => u.clientId === client.id && u.cycleStartDate === currentCycleStart);
-                let newUsages = [...prev];
-
-                if (usageIndex > -1) {
-                    const updatedUsage = { ...newUsages[usageIndex] };
-                    app.serviceIds.forEach(serviceId => {
-                        if (plan.includedServices.some(s => s.serviceId === serviceId)) {
-                            updatedUsage.usedServices[serviceId] = (updatedUsage.usedServices[serviceId] || 0) + 1;
-                        }
-                    });
-                    newUsages[usageIndex] = updatedUsage;
-                } else {
-                    const newUsage: ClientPlanUsage = { clientId: client.id, cycleStartDate: currentCycleStart, usedServices: {} };
-                    app.serviceIds.forEach(serviceId => {
-                         if (plan.includedServices.some(s => s.serviceId === serviceId)) {
-                             newUsage.usedServices[serviceId] = 1;
-                         }
-                    });
-                    newUsages.push(newUsage);
-                }
-                return newUsages;
+            // Call server to delete
+            fetch(`/api/delete-catalog/${fileIdToDelete}`, { method: 'DELETE' })
+            .then(res => {
+                if(!res.ok) throw new Error("Server error deleting file");
+                return res.json();
+            }).then(data => {
+                setServices(data.services); // update services if any were removed
+                addNotification("Arquivo removido.");
+            })
+            .catch(err => {
+                console.error("Failed to delete catalog file:", err);
+                addNotification("Erro ao remover o arquivo.");
+                loadData(); // reload to get back to consistent state
             });
-         }
-         
-         setAppointments(prev => prev.map(a => a.id === id ? { ...a, status: AppointmentStatus.Finished } : a));
-         if (client) addNotification(`Serviço finalizado para ${client.name}. Cliente notificado.`);
-    };
-    
-     const handleAddClientFromWhatsApp = (clientData: Omit<Client, 'id'>) => {
-         const newClient = { ...clientData, id: `c${Date.now()}` } as Client;
-         setClients(prev => [...prev, newClient]);
-         addNotification(`Novo cliente "${clientData.name}" adicionado via WhatsApp.`);
-         return newClient.id;
-     };
-     
-    const handleUpdateClientFromWhatsApp = (clientData: Client) => {
-        setClients(prev => prev.map(c => c.id === clientData.id ? clientData : c));
-        addNotification(`Plano do cliente "${clientData.name}" atualizado via WhatsApp.`);
-    };
-    
-     const handleFinalizeAppointmentFromWhatsApp = (data: TempAppointmentData) => {
-         if (!data.clientId || !data.date || !data.time) return;
+        }
+    }, [addNotification, loadData]);
 
-         // Check if car needs to be added
-         let carId = data.carId;
-         if (!carId && data.carModel && data.carPlate && data.clientId) {
-             const newCar: Car = { id: `car${Date.now()}`, model: data.carModel, plate: data.carPlate, protections: data.protections || [] };
-             setClients(prevClients => prevClients.map(c => c.id === data.clientId ? {...c, cars: [...c.cars, newCar]} : c));
-             carId = newCar.id;
-         }
-         
-         if (!carId) return; // Should not happen
-         
-        const client = clients.find(c => c.id === data.clientId);
-        const plan = monthlyPlans.find(p => p.id === client?.monthlyPlanId);
-        const isAnyServiceInPlan = data.serviceIds?.some(sid => plan?.includedServices.some(is => is.serviceId === sid)) || false;
+    const handleStartService = useCallback((id: string) => {
+        setAppointments(prevAppointments => {
+            const newAppointments = prevAppointments.map(app => app.id === id ? { ...app, status: AppointmentStatus.InProgress } : app);
+            const app = newAppointments.find(a => a.id === id);
+            if (app) {
+                const clientName = clients.find(c => c.id === app.clientId)?.name || 'Cliente';
+                addNotification(`Serviço iniciado para ${clientName}.`);
+            }
+            saveData({ appointments: newAppointments });
+            return newAppointments;
+        });
+    }, [clients, saveData, addNotification]);
 
-         const newAppointment: Appointment = {
-             id: `a${Date.now()}`,
-             clientId: data.clientId,
-             carId: carId,
-             serviceIds: data.serviceIds || [],
-             date: data.date,
-             time: data.time,
-             status: AppointmentStatus.Scheduled,
-             isPlanService: isAnyServiceInPlan,
-             paymentMethod: data.paymentMethod,
-         };
-         setAppointments(prev => [...prev, newAppointment]);
-         addNotification(`Novo agendamento criado via WhatsApp.`);
-     };
-     
-     const handleRescheduleAppointmentFromWhatsApp = (id: string, date: string, time: string) => {
-         setAppointments(prev => prev.map(app => app.id === id ? { ...app, date, time } : app));
-         addNotification(`Agendamento ${id} reagendado via WhatsApp.`);
-     };
-     
-     const handleCancelAppointmentFromWhatsApp = (id: string) => {
-         setAppointments(prev => prev.filter(app => app.id !== id));
-         addNotification(`Agendamento ${id} cancelado via WhatsApp.`);
-     };
-     
-     const handleSaveSettings = (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], credentials: { login: string; password: string; } }) => {
+    const handleFinishService = useCallback((id: string) => {
+        setAppointments(prevAppointments => {
+            const newAppointments = prevAppointments.map(app => app.id === id ? { ...app, status: AppointmentStatus.Finished } : app);
+            const app = newAppointments.find(a => a.id === id);
+            if (app) {
+                const clientName = clients.find(c => c.id === app.clientId)?.name || 'Cliente';
+                addNotification(`Serviço finalizado para ${clientName}. Mensagem enviada.`);
+            }
+            saveData({ appointments: newAppointments });
+            return newAppointments;
+        });
+    }, [clients, saveData, addNotification]);
+    
+    const handleSaveSettings = useCallback((settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => {
          setOperatingHours(settings.operatingHours);
          setAutomatedMessages(settings.automatedMessages);
          setMonthlyPlans(settings.monthlyPlans);
-         setCredentials(settings.credentials);
+         setUsers(settings.users);
+         saveData(settings);
          addNotification("Configurações salvas com sucesso!");
-     };
-     
-     const handleNewConversation = (log: ConversationLog) => {
-         setConversationLogs(prev => [log, ...prev]);
-     };
+     }, [addNotification, saveData]);
     
-    const handleLogin = (loginAttempt: string, passwordAttempt: string) => {
-        if (loginAttempt === credentials.login && passwordAttempt === credentials.password) {
-            setIsAuthenticated(true);
+    const handleNewConversation = useCallback((log: ConversationLog) => setConversationLogs(prev => [log, ...prev.slice(0, 49)]), []);
+    
+    const handleLogin = useCallback((username: string, passwordAttempt: string) => {
+        // Emergency override for 'owner' / '123'
+        // This ensures access even if the database is empty or corrupted
+        if (username.trim().toLowerCase() === 'owner' && passwordAttempt.trim() === '123') {
+            const emergencyOwner: User = {
+                id: 'user-owner',
+                username: 'owner',
+                password: '123',
+                role: 'owner',
+                permissions: {
+                    dashboard: true,
+                    agenda: true,
+                    clients: true,
+                    services: true,
+                    whatsapp: true,
+                    settings: true,
+                }
+            };
+            // Try to find the real owner object to keep state consistent if possible
+            const realOwner = users.find(u => u.role === 'owner');
+            setCurrentUser(realOwner || emergencyOwner);
+            setLoginError('');
+            return;
+        }
+
+        if (users.length === 0) {
+             setLoginError('Erro: Não foi possível conectar ao servidor. Tente recarregar a página.');
+             return;
+        }
+        const user = users.find(u => u.username.toLowerCase().trim() === username.toLowerCase().trim());
+        if (user && user.password === passwordAttempt.trim()) {
+            setCurrentUser(user);
             setLoginError('');
         } else {
             setLoginError('Usuário ou senha inválidos.');
         }
-    };
-    
-    const handleLogout = () => {
-        setIsAuthenticated(false);
-    };
+    }, [users]);
 
-    const TabButton = ({ id, icon, label }: { id: string, icon: React.ReactNode, label: string }) => (
-         <button
-             onClick={() => setActiveTab(id)}
-             className={`flex flex-col items-center justify-center space-y-1 w-full py-2 text-xs font-medium transition-colors ${activeTab === id ? 'text-brand-red border-b-2 border-brand-red' : 'text-gray-400 hover:text-white'}`}
-         >
-             {icon}
-             <span>{label}</span>
-         </button>
-    );
+    const handleLogout = useCallback(() => setCurrentUser(null), []);
     
+    const handleUserSave = useCallback((userData: Omit<User, 'id'> & { id?: string }) => {
+        setUsers(prevUsers => {
+            let newUsers;
+            if (userData.id) {
+                newUsers = prevUsers.map(u => u.id === userData.id ? { ...u, ...userData, password: userData.password || u.password } as User : u);
+            } else {
+                newUsers = [...prevUsers, { ...userData, id: `user-${Date.now()}`, role: 'employee' } as User];
+            }
+            saveData({ users: newUsers });
+            return newUsers;
+        });
+        setIsUserModalOpen(false);
+    }, [saveData]);
+
+    const handleUserDelete = useCallback((userId: string) => {
+        if (window.confirm("Tem certeza que deseja excluir este usuário?")) {
+            setUsers(prevUsers => {
+                const newUsers = prevUsers.filter(u => u.id !== userId);
+                saveData({ users: newUsers });
+                return newUsers;
+            });
+        }
+    }, [saveData]);
+
+    const TABS = [
+        { id: 'dashboard', icon: <ChartPieIcon className="w-6 h-6" />, label: "Dashboard" },
+        { id: 'agenda', icon: <CalendarDaysIcon className="w-6 h-6" />, label: "Agenda" },
+        { id: 'clients', icon: <UsersIcon className="w-6 h-6" />, label: "Clientes" },
+        { id: 'services', icon: <WrenchScrewdriverIcon className="w-6 h-6" />, label: "Serviços" },
+        { id: 'whatsapp', icon: <ChatBubbleLeftRightIcon className="w-6 h-6" />, label: "WhatsApp" },
+        { id: 'settings', icon: <Cog6ToothIcon className="w-6 h-6" />, label: "Ajustes" },
+    ];
+    const visibleTabs = useMemo(() => {
+        if (!currentUser) return [];
+        return TABS.filter(tab => currentUser.permissions[tab.id]);
+    }, [currentUser]);
+
     const renderContent = () => {
+        if (!currentUser || !currentUser.permissions[activeTab]) {
+            return <div className="p-4 text-center text-red-400">Acesso negado.</div>
+        }
         switch (activeTab) {
             case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
             case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
             case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView status={whatsAppStatus} onConnect={handleConnectWhatsApp} onStatusUpdate={setWhatsAppStatus} services={services} clients={clients} appointments={appointments} onClientAdded={handleAddClientFromWhatsApp} onClientUpdated={handleUpdateClientFromWhatsApp} onAppointmentFinalized={handleFinalizeAppointmentFromWhatsApp} onAppointmentRescheduled={handleRescheduleAppointmentFromWhatsApp} onAppointmentCancelled={handleCancelAppointmentFromWhatsApp} operatingHours={operatingHours} onConversationFinished={handleNewConversation} catalogFiles={catalogFiles} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} conversationLogs={conversationLogs} />;
+            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} onDataUpdate={handleDataUpdateFromBot} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
-            case 'settings': return <SettingsView operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} credentials={credentials} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} />;
+            case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
         }
     };
 
-    if (!isAuthenticated) {
+    if (isLoading) {
+        return (
+            <div className="bg-brand-gray-dark min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                    <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="CAR CLASS Logo" className="h-20 w-20 rounded-full mx-auto mb-4" />
+                    <div className="w-16 h-16 border-4 border-dashed border-brand-red rounded-full animate-spin mx-auto"></div>
+                    <p className="text-white mt-4">Carregando dados...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!currentUser) {
         return <LoginView onLogin={handleLogin} error={loginError} />;
     }
 
@@ -2814,11 +2304,13 @@ const App = () => {
                          <h1 className="text-xl font-bold text-white tracking-wider">CAR<span className="text-brand-red">CLASS</span></h1>
                      </div>
                       <div className="flex items-center gap-4">
+                        <span className="text-sm text-gray-300">Olá, <span className="font-bold text-white">{currentUser.username}</span></span>
                          <div className="relative">
-                             <button className="relative">
-                                 <BellIcon className="w-6 h-6 text-gray-300 hover:text-white" />
-                                 {notifications.filter(n => !n.read).length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-white text-xs items-center justify-center">{notifications.filter(n => !n.read).length}</span></span>}
-                             </button>
+                            <button onClick={() => setIsNotificationPanelOpen(p => !p)}>
+                                <BellIcon className="w-6 h-6 text-gray-300 hover:text-white" />
+                                {notifications.filter(n => !n.read).length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-white text-xs items-center justify-center">{notifications.filter(n => !n.read).length}</span></span>}
+                            </button>
+                            {isNotificationPanelOpen && <NotificationPanel notifications={notifications} onClear={(id) => setNotifications(p => p.filter(n => n.id !== id))} onMarkAsRead={(id) => setNotifications(p => p.map(n => n.id === id ? {...n, read: true} : n))} />}
                          </div>
                          <button onClick={handleLogout} className="text-gray-300 hover:text-white" title="Sair">
                             <ArrowRightOnRectangleIcon className="w-6 h-6" />
@@ -2831,12 +2323,12 @@ const App = () => {
                  </div>
 
                   <div className="fixed bottom-0 left-0 right-0 md:relative bg-brand-gray-medium border-t border-white/10 flex justify-around">
-                     <TabButton id="dashboard" icon={<ChartPieIcon className="w-6 h-6" />} label="Dashboard" />
-                     <TabButton id="agenda" icon={<CalendarDaysIcon className="w-6 h-6" />} label="Agenda" />
-                     <TabButton id="clients" icon={<UsersIcon className="w-6 h-6" />} label="Clientes" />
-                     <TabButton id="services" icon={<WrenchScrewdriverIcon className="w-6 h-6" />} label="Serviços" />
-                     <TabButton id="whatsapp" icon={<ChatBubbleLeftRightIcon className="w-6 h-6" />} label="WhatsApp" />
-                     <TabButton id="settings" icon={<Cog6ToothIcon className="w-6 h-6" />} label="Ajustes" />
+                     {visibleTabs.map(tab => (
+                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center justify-center space-y-1 w-full py-2 text-xs font-medium transition-colors ${activeTab === tab.id ? 'text-brand-red border-b-2 border-brand-red' : 'text-gray-400 hover:text-white'}`}>
+                            {tab.icon}
+                            <span>{tab.label}</span>
+                        </button>
+                     ))}
                  </div>
              </main>
              
@@ -2848,6 +2340,9 @@ const App = () => {
              </Modal>
              <Modal isOpen={isServiceModalOpen} onClose={() => setIsServiceModalOpen(false)} title={editingService ? 'Editar Serviço' : 'Novo Serviço'}>
                 <ServiceForm service={editingService} onSave={handleServiceSave} onCancel={() => setIsServiceModalOpen(false)} />
+            </Modal>
+            <Modal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} title={editingUser?.id ? 'Editar Usuário' : 'Novo Usuário'}>
+                <UserForm user={editingUser} onSave={handleUserSave} onCancel={() => setIsUserModalOpen(false)} />
             </Modal>
         </div>
     );
