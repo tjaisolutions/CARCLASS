@@ -3,10 +3,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
+import { makeWASocket, DisconnectReason, BufferJSON, initAuthCreds, proto } from '@whiskeysockets/baileys';
+import { MongoClient } from 'mongodb';
+import pino from 'pino';
 
 // --- SETUP ---
-// Como estamos usando módulos ES6 (type: "module" no package.json), __dirname não está disponível diretamente.
-// Este código recria a funcionalidade de __dirname.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -14,65 +15,226 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 // --- MIDDLEWARE ---
-// Permite que o servidor entenda requisições com corpo em JSON.
 app.use(express.json());
-// Configura o 'multer' para processar uploads de arquivos, armazenando-os em memória.
 const upload = multer({ storage: multer.memoryStorage() });
 
 // --- CONFIGURAÇÃO DA API GEMINI ---
-// A chave de API é lida de forma segura das variáveis de ambiente do servidor.
 const apiKey = process.env.API_KEY;
 if (!apiKey) {
   console.error("ERRO: A variável de ambiente API_KEY não foi definida no servidor.");
-  // Em um ambiente de produção, é melhor encerrar o processo se a chave não estiver disponível.
-  // process.exit(1); 
 }
-// Inicializa o cliente da API do GenAI. Só é feito uma vez.
 const ai = new GoogleGenAI({ apiKey });
 
-// --- GESTÃO DE SESSÃO WHATSAPP (MOCK REALISTA PARA RENDER) ---
-// Como não podemos instalar bibliotecas pesadas como Baileys aqui sem risco de build,
-// simulamos a máquina de estados do backend.
-// Para usar REAIS bibliotecas, substitua este bloco pela inicialização do `wppconnect` ou `baileys`.
+// --- CONFIGURAÇÃO MONGODB ---
+// URI fornecida pelo usuário
+const DEFAULT_MONGO_URI = "mongodb+srv://CARCLASS:carclass123@carclass.yobbg19.mongodb.net/?appName=CARCLASS";
+const mongoUri = process.env.MONGODB_URI || DEFAULT_MONGO_URI;
+
+let mongoClient;
+let mongoCollection;
+
+if (mongoUri) {
+    try {
+        mongoClient = new MongoClient(mongoUri);
+        await mongoClient.connect();
+        console.log("Conectado ao MongoDB com sucesso.");
+        const db = mongoClient.db('carclass_whatsapp');
+        mongoCollection = db.collection('auth_info');
+    } catch (err) {
+        console.error("Erro CRÍTICO ao conectar ao MongoDB:", err);
+    }
+} else {
+    console.warn("ATENÇÃO: MONGODB_URI não definido. A sessão do WhatsApp não será persistida.");
+}
+
+// --- HELPER PARA AUTH STATE NO MONGODB ---
+const useMongoDBAuthState = async (collection) => {
+    const writeData = async (data, id) => {
+        try {
+            await collection.updateOne(
+                { _id: id },
+                { $set: { data: JSON.stringify(data, BufferJSON.replacer) } },
+                { upsert: true }
+            );
+        } catch (err) {
+            console.error(`Erro ao salvar auth data (${id}):`, err);
+        }
+    };
+
+    const readData = async (id) => {
+        try {
+            const result = await collection.findOne({ _id: id });
+            if (result && result.data) {
+                return JSON.parse(result.data, BufferJSON.reviver);
+            }
+            return null;
+        } catch (err) {
+            console.error(`Erro ao ler auth data (${id}):`, err);
+            return null;
+        }
+    };
+
+    const removeData = async (id) => {
+        try {
+            await collection.deleteOne({ _id: id });
+        } catch (err) {
+             console.error(`Erro ao remover auth data (${id}):`, err);
+        }
+    };
+
+    const creds = (await readData('creds')) || initAuthCreds();
+
+    return {
+        state: {
+            creds,
+            keys: {
+                get: async (type, ids) => {
+                    const data = {};
+                    await Promise.all(ids.map(async (id) => {
+                        let value = await readData(`${type}-${id}`);
+                        if (type === 'app-state-sync-key' && value) {
+                            value = proto.Message.AppStateSyncKeyData.fromObject(value);
+                        }
+                        if (value) {
+                            data[id] = value;
+                        }
+                    }));
+                    return data;
+                },
+                set: async (data) => {
+                    const tasks = [];
+                    for (const category in data) {
+                        for (const id in data[category]) {
+                            const value = data[category][id];
+                            const key = `${category}-${id}`;
+                            if (value) {
+                                tasks.push(writeData(value, key));
+                            } else {
+                                tasks.push(removeData(key));
+                            }
+                        }
+                    }
+                    await Promise.all(tasks);
+                }
+            }
+        },
+        saveCreds: () => {
+            return writeData(creds, 'creds');
+        }
+    };
+};
+
+
+// --- GESTÃO DE SESSÃO WHATSAPP ---
 let whatsappSession = {
     status: 'disconnected', // 'disconnected', 'loading' (scanning), 'connected'
     qrCode: null,
-    lastUpdated: Date.now()
+    sock: null
 };
+
+async function connectToWhatsApp() {
+    let authState;
+
+    if (mongoCollection) {
+        console.log("Iniciando autenticação via MongoDB...");
+        authState = await useMongoDBAuthState(mongoCollection);
+    } else {
+        console.log("Usando autenticação em memória (fallback).");
+        const { useMultiFileAuthState } = await import('@whiskeysockets/baileys');
+        authState = await useMultiFileAuthState('auth_info_local'); 
+    }
+
+    const { state, saveCreds } = authState;
+    
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true,
+        logger: pino({ level: 'silent' }),
+        browser: ["CarClass Mobile", "Chrome", "1.0.0"],
+        connectTimeoutMs: 60000, 
+    });
+
+    whatsappSession.sock = sock;
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            whatsappSession.qrCode = qr;
+            whatsappSession.status = 'loading';
+            console.log("Novo QR Code gerado. Aguardando leitura...");
+        }
+
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Conexão fechada. Reconectar?', shouldReconnect);
+            
+            // Se foi logout (desconectou pelo celular), limpamos o banco
+            if ((lastDisconnect?.error)?.output?.statusCode === DisconnectReason.loggedOut) {
+                whatsappSession.status = 'disconnected';
+                whatsappSession.qrCode = null;
+                if (mongoCollection) {
+                    mongoCollection.deleteMany({}); 
+                    console.log("Sessão limpa do banco após logout.");
+                }
+            } else {
+                // Se caiu a net, tenta reconectar
+                 whatsappSession.status = 'disconnected'; 
+            }
+
+            if (shouldReconnect) {
+                connectToWhatsApp();
+            }
+        } else if (connection === 'open') {
+            console.log('Conexão WhatsApp ESTABELECIDA!');
+            whatsappSession.status = 'connected';
+            whatsappSession.qrCode = null;
+        }
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+    
+    // Monitoramento simples de mensagens para debug
+    sock.ev.on('messages.upsert', async m => {
+        if(m.type === 'notify') {
+            // Aqui você pode implementar lógica futura para enviar mensagens reais para o frontend
+            // Por enquanto, o frontend usa simulação lógica, mas a conexão é real.
+            // console.log('Msg recebida:', m.messages[0]);
+        }
+    });
+}
+
+// Inicializa conexão se já tiver credenciais salvas
+if (mongoCollection) {
+    // Pequeno delay para garantir conexão com banco
+    setTimeout(() => {
+        connectToWhatsApp();
+    }, 2000);
+}
+
 
 // --- ROTAS DA API WHATSAPP ---
 
-// Endpoint para iniciar a sessão e obter o QR Code
-app.post('/api/whatsapp/start', (req, res) => {
-    console.log("Iniciando sessão WhatsApp...");
-    whatsappSession.status = 'loading';
-    // Gera um ID de sessão único para simular o código de pareamento real
-    const uniqueSessionId = `CARCLASS-PAIRING-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    whatsappSession.qrCode = uniqueSessionId; 
-    whatsappSession.lastUpdated = Date.now();
+// Endpoint para iniciar/reiniciar a sessão manualmente
+app.post('/api/whatsapp/start', async (req, res) => {
+    if (whatsappSession.status === 'connected') {
+        return res.json({ status: 'connected', message: 'Já conectado' });
+    }
     
-    // Simulação do processo de leitura (opcional: remove se for integrar com lib real)
-    // Isso simula o usuário escaneando após 15s para fins de demonstração de fluxo
-    setTimeout(() => {
-        if (whatsappSession.status === 'loading') {
-             whatsappSession.status = 'connected';
-             whatsappSession.qrCode = null; // QR code expira após uso
-             console.log("Sessão WhatsApp conectada com sucesso.");
-        }
-    }, 20000);
-
-    res.json({ status: whatsappSession.status, qrCode: whatsappSession.qrCode });
+    await connectToWhatsApp();
+    res.json({ status: 'loading', message: 'Iniciando conexão...' });
 });
 
-// Endpoint para verificar o status atual (Polling)
+// Endpoint para polling de status e QR Code
 app.get('/api/whatsapp/status', (req, res) => {
-    res.json({ status: whatsappSession.status });
+    res.json({ 
+        status: whatsappSession.status, 
+        qrCode: whatsappSession.qrCode 
+    });
 });
 
 
 // --- ROTAS DA API GEMINI ---
-
-// Endpoint para o chatbot de seleção de serviço.
 app.post('/api/chat', async (req, res) => {
   const { userInput, services } = req.body;
 
@@ -131,7 +293,6 @@ Com base na mensagem, responda APENAS com um objeto JSON válido com este format
   }
 });
 
-// Endpoint para processar upload de catálogo de serviços (PDF/JPG).
 app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) => {
   const file = req.file;
   if (!file) {
@@ -188,16 +349,11 @@ app.post('/api/process-catalog', upload.single('catalogFile'), async (req, res) 
 });
 
 // --- SERVINDO O FRONTEND ---
-// Aponta para a pasta 'dist', que contém a versão de produção do seu app React.
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Rota "catch-all". Qualquer requisição que não seja para a API ou um arquivo estático
-// (como .css, .js, .png) será redirecionada para o index.html. Isso é crucial para
-// que o roteamento do lado do cliente (client-side routing) do React funcione.
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
-
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 app.listen(port, () => {
