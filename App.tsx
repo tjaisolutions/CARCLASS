@@ -1,5 +1,5 @@
-
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import QRCode from 'qrcode';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage } from './types';
 
@@ -32,49 +32,19 @@ const CheckCircleIcon = ({ className }: { className?: string }) => <svg xmlns="h
 const BellIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" /></svg>;
 const ForwardIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" /></svg>;
 const ArchiveBoxIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>;
-const DocumentTextIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0 1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>;
+const DocumentTextIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>;
 const StarIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" /></svg>;
 const BanknotesIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>;
 const PhotoIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>;
 const LockClosedIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 0 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>;
 const ArrowRightOnRectangleIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>;
-const ExclamationCircleIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>;
-const InformationCircleIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" /></svg>;
 
 
 // --- Helper Functions ---
 const normalizeText = (text: string) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-// --- TOAST COMPONENT ---
-type ToastType = 'success' | 'error' | 'info';
-type ToastProps = { id: string; message: string; type: ToastType; onClose: (id: string) => void; };
-
-const Toast = ({ id, message, type, onClose }: ToastProps) => {
-    useEffect(() => {
-        const timer = setTimeout(() => onClose(id), 5000); // Auto dismiss after 5s
-        return () => clearTimeout(timer);
-    }, [id, onClose]);
-
-    const config = {
-        success: { icon: <CheckCircleIcon className="w-6 h-6" />, color: 'bg-green-900/90 border-green-500 text-green-100' },
-        error: { icon: <ExclamationCircleIcon className="w-6 h-6" />, color: 'bg-red-900/90 border-red-500 text-red-100' },
-        info: { icon: <InformationCircleIcon className="w-6 h-6" />, color: 'bg-blue-900/90 border-blue-500 text-blue-100' },
-    }[type];
-
-    return (
-        <div className={`flex items-center gap-3 p-4 rounded-lg border shadow-xl backdrop-blur-sm mb-3 transition-all duration-500 animate-[slideInRight_0.5s_ease-out] ${config.color} max-w-sm w-full`}>
-            <div className="flex-shrink-0">{config.icon}</div>
-            <p className="text-sm font-medium flex-grow">{message}</p>
-            <button onClick={() => onClose(id)} className="text-white/70 hover:text-white transition-colors">
-                <XMarkIcon className="w-5 h-5" />
-            </button>
-        </div>
-    );
-};
-
 
 // --- VIEW COMPONENTS ---
-// ... (AppointmentCard, AgendaView, ClientCard, etc. remain unchanged) ...
 
 const getStatusClasses = (status: AppointmentStatus) => {
     switch (status) {
@@ -372,7 +342,6 @@ const ClientCard: React.FC<ClientCardProps> = ({ client, onEdit, onDelete, plan,
 };
 
 const ClientsView = ({ clients, onAdd, onEdit, onDelete, monthlyPlans, clientPlanUsages, services }: { clients: Client[]; onAdd: () => void; onEdit: (client: Client) => void; onDelete: (id: string) => void; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; services: Service[]; }) => {
-    // ... (ClientsView implementation remains the same, just using updated colors if needed) ...
     const [searchTerm, setSearchTerm] = useState('');
 
     const filteredClients = useMemo(() => {
@@ -392,7 +361,7 @@ const ClientsView = ({ clients, onAdd, onEdit, onDelete, monthlyPlans, clientPla
     return (
     <div className="p-4">
         <div className="mb-4">
-             <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 bg-brand-red hover:bg-brand-red-hover text-white font-bold py-2 px-4 rounded-md transition-colors"><PlusIcon className="w-5 h-5" />Adicionar Cliente</button>
+             <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"><PlusIcon className="w-5 h-5" />Adicionar Cliente</button>
         </div>
         <div className="mb-4">
             <FormInput 
@@ -451,7 +420,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEdit, onDelete }) 
 const ServicesView = ({ services, onAdd, onEdit, onDelete }: { services: Service[]; onAdd: () => void; onEdit: (service: Service) => void; onDelete: (id: string) => void; }) => (
     <div className="p-4">
         <div className="mb-4">
-             <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 bg-brand-red hover:bg-brand-red-hover text-white font-bold py-2 px-4 rounded-md transition-colors"><PlusIcon className="w-5 h-5" />Adicionar Serviço</button>
+             <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"><PlusIcon className="w-5 h-5" />Adicionar Serviço</button>
         </div>
         <p className="text-center text-gray-400 text-sm mb-4">Serviços também podem ser adicionados via upload de catálogo na aba "Ajustes".</p>
         <div className="space-y-4">
@@ -470,7 +439,7 @@ const ServicesView = ({ services, onAdd, onEdit, onDelete }: { services: Service
     </div>
 );
 
-// ... (ChatMessage, FileAttachment, ImageAttachment remain unchanged) ...
+
 type ChatMessageProps = { sender: string; children?: React.ReactNode; isBot?: boolean; isTyping?: boolean; };
 const ChatMessage: React.FC<ChatMessageProps> = ({ sender, children, isBot, isTyping }) => (
     <div className={`flex items-end gap-2 ${isBot ? 'justify-start' : 'justify-end'}`}>
@@ -496,8 +465,6 @@ const FileAttachment = ({ fileName, fileType }: { fileName: string; fileType: 'p
         </div>
     </div>
 );
-
-// ... (ImageAttachment remains unchanged) ...
 
 const ImageAttachment = ({ file }: { file: File }) => {
     const [imageUrl, setImageUrl] = useState('');
@@ -530,9 +497,9 @@ const ImageAttachment = ({ file }: { file: File }) => {
 
 const WhatsAppConnectionStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
     const statusConfig = {
-        connected: { text: 'Conectado via Servidor', color: 'text-green-400', iconColor: 'text-green-500' },
+        connected: { text: 'Conectado 24/7', color: 'text-green-400', iconColor: 'text-green-500' },
         disconnected: { text: 'Desconectado', color: 'text-red-400', iconColor: 'text-red-500' },
-        loading: { text: 'Aguardando Leitura do QR Code...', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
+        loading: { text: 'Conectando...', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
     };
     const currentStatus = statusConfig[status];
 
@@ -548,8 +515,6 @@ const WhatsAppConnectionStatus = ({ status }: { status: 'connected' | 'disconnec
         </div>
     );
 };
-
-// ... (Conversation Logic and Types remain mostly same, injecting notifications) ...
 
 type ConversationState = 'GREETING' | 'AWAITING_IS_CLIENT_RESPONSE' | 'AWAITING_CPF' | 'AWAITING_EXISTING_APPOINTMENT_ACTION' | 'AWAITING_CANCELLATION_CONFIRMATION' | 'AWAITING_NEW_CLIENT_NAME' | 'AWAITING_NEW_CLIENT_CPF' | 'AWAITING_PLAN_INTEREST' | 'AWAITING_PLAN_SELECTION' | 'AWAITING_SERVICE_CHOICE_METHOD' | 'AWAITING_SERVICE_SELECTION' | 'AWAITING_DATE_AND_TIME_CHOICE' | 'AWAITING_VEHICLE_CONFIRMATION' | 'AWAITING_NEW_VEHICLE_MODEL' | 'AWAITING_NEW_VEHICLE_PLATE' | 'AWAITING_NEW_VEHICLE_PROTECTION_INFO' | 'AWAITING_NEW_VEHICLE_PROTECTION_DETAILS' | 'AWAITING_PAYMENT_METHOD' | 'CONFIRMATION' | 'FINISHED';
 
@@ -568,7 +533,7 @@ type TempAppointmentData = {
     paymentMethod?: Appointment['paymentMethod'];
 };
 
-const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, onClientUpdated, onAppointmentFinalized, onAppointmentRescheduled, onAppointmentCancelled, operatingHours, onConversationFinished, catalogFiles, monthlyPlans, clientPlanUsages, conversationLogs, onConnect, qrCodeData, onConversationStarted }: { status: 'connected' | 'disconnected' | 'loading'; services: Service[]; clients: Client[]; appointments: Appointment[]; onClientAdded: (client: Omit<Client, 'id'>) => string; onClientUpdated: (client: Client) => void; onAppointmentFinalized: (data: TempAppointmentData) => void; onAppointmentRescheduled: (id: string, date: string, time: string) => void; onAppointmentCancelled: (id: string) => void; operatingHours: OperatingHours; onConversationFinished: (log: ConversationLog) => void; catalogFiles: { id: string; file: File }[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; conversationLogs: ConversationLog[]; onConnect: () => void; qrCodeData: string | null; onConversationStarted: () => void; }) => {
+const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, onClientUpdated, onAppointmentFinalized, onAppointmentRescheduled, onAppointmentCancelled, operatingHours, onConversationFinished, catalogFiles, monthlyPlans, clientPlanUsages, conversationLogs, onConnect, onStatusUpdate }: { status: 'connected' | 'disconnected' | 'loading'; services: Service[]; clients: Client[]; appointments: Appointment[]; onClientAdded: (client: Omit<Client, 'id'>) => string; onClientUpdated: (client: Client) => void; onAppointmentFinalized: (data: TempAppointmentData) => void; onAppointmentRescheduled: (id: string, date: string, time: string) => void; onAppointmentCancelled: (id: string) => void; operatingHours: OperatingHours; onConversationFinished: (log: ConversationLog) => void; catalogFiles: { id: string; file: File }[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; conversationLogs: ConversationLog[]; onConnect: () => void; onStatusUpdate: (status: 'connected' | 'disconnected' | 'loading') => void }) => {
     const [messages, setMessages] = useState<ChatMessageData[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [userInput, setUserInput] = useState('');
@@ -577,9 +542,9 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
     const [dateSlotOptions, setDateSlotOptions] = useState<{date: Date, slots: string[]}[]>([]);
     const [isConversationFinished, setIsConversationFinished] = useState(false);
     const [activeConversationId, setActiveConversationId] = useState<'live' | string>('live');
+    const [qrCodeImg, setQrCodeImg] = useState<string | null>(null);
 
     const bottomRef = useRef<HTMLDivElement>(null);
-    // ... (helper functions addMessage, thinkAndRespond, findNextAvailableDays, getAvailableSlots) ...
 
     const addMessage = (sender: 'Cliente' | 'CAR CLASS', content: React.ReactNode) => {
         setMessages(prev => [...prev, { sender, content, isBot: sender === 'CAR CLASS' }]);
@@ -592,7 +557,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
             responseFn();
         }, delay);
     };
-    
+
     const findNextAvailableDays = useCallback((count: number): Date[] => {
         const availableDays: Date[] = [];
         const today = new Date();
@@ -614,6 +579,38 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
             .map(app => app.time);
         return operatingHours.availableTimes.filter(hour => !bookedSlots.includes(hour));
     }, [appointments, operatingHours]);
+    
+    // Polling for QR Code and Status
+    useEffect(() => {
+        let intervalId: any;
+
+        if (status === 'loading') {
+            intervalId = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/whatsapp/status');
+                    const data = await response.json();
+                    
+                    if (data.status === 'connected') {
+                         onStatusUpdate('connected');
+                         setQrCodeImg(null);
+                    } else if (data.qrCode) {
+                         try {
+                             const url = await QRCode.toDataURL(data.qrCode);
+                             setQrCodeImg(url);
+                         } catch (err) {
+                             console.error("Error generating QR code image:", err);
+                         }
+                    }
+                } catch (error) {
+                    console.error("Polling error:", error);
+                }
+            }, 2000); // Check every 2 seconds
+        }
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, [status, onStatusUpdate]);
 
     const startDateTimeSelection = () => {
         const nextDays = findNextAvailableDays(3);
@@ -718,7 +715,6 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
         setConversationState('FINISHED');
     }, [clients, services, appointments, onAppointmentFinalized, onAppointmentRescheduled]);
 
-    // ... (handleSendMessage, handleServiceSelectionLogic, processUserInput remain unchanged) ...
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
         if (!userInput.trim()) return;
@@ -755,6 +751,8 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                      addMessage('CAR CLASS', <p>Peço desculpas, mas não consegui confirmar os serviços que você mencionou em nossa lista. Poderia tentar novamente, por favor?</p>);
                 }
             }
+            // For 'ANSWER_QUESTION' or 'CLARIFY', we've already sent the response and stay in the same state.
+
         } catch (error) {
             console.error("Processing error:", error);
             setIsTyping(false);
@@ -764,7 +762,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
 
     const processUserInput = (input: string) => {
         const normalizedInput = normalizeText(input);
-        // ... (Full switch case logic from original file to maintain functionality) ...
+
         switch (conversationState) {
             case 'AWAITING_IS_CLIENT_RESPONSE':
                 if (normalizedInput.includes('sim') || normalizedInput.includes('sou') || normalizedInput.includes('ja sou')) {
@@ -781,8 +779,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                      thinkAndRespond(() => addMessage('CAR CLASS', <p>Desculpe, não entendi. Você já é nosso cliente?</p>));
                 }
                 break;
-            // ... (rest of cases remain the same) ...
-             case 'AWAITING_CPF':
+            case 'AWAITING_CPF':
                 if (normalizedInput.includes('cadastrar') || normalizedInput.includes('novo')) {
                     thinkAndRespond(() => {
                         addMessage('CAR CLASS', <p>Entendido. Para iniciarmos seu cadastro, qual é o seu nome completo?</p>);
@@ -790,6 +787,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                     });
                     break;
                 }
+
                 const cleanCpf = input.replace(/[.-]/g, '');
                 const existingClient = clients.find(c => c.cpf.replace(/[.-]/g, '') === cleanCpf);
                 
@@ -808,7 +806,6 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                     } else {
                         const clientPlan = monthlyPlans.find(p => p.id === existingClient.monthlyPlanId);
                         if (clientPlan) {
-                             // ... Plan logic ...
                             const getFirstDayOfCurrentMonth = () => {
                                 const now = new Date();
                                 return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
@@ -877,7 +874,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                 }
                 break;
             case 'AWAITING_CANCELLATION_CONFIRMATION':
-                 if (normalizedInput.includes('sim') || normalizedInput.includes('confirmo') || normalizedInput.includes('pode cancelar')) {
+                if (normalizedInput.includes('sim') || normalizedInput.includes('confirmo') || normalizedInput.includes('pode cancelar')) {
                     thinkAndRespond(() => {
                         if (tempData.appointmentToChangeId) {
                             onAppointmentCancelled(tempData.appointmentToChangeId);
@@ -903,7 +900,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                     });
                 }
                 break;
-            case 'AWAITING_NEW_CLIENT_NAME':
+             case 'AWAITING_NEW_CLIENT_NAME':
                 setTempData(prev => ({ ...prev, clientName: input }));
                 thinkAndRespond(() => {
                     addMessage('CAR CLASS', <p>Obrigado, {input}. Agora, por favor, digite seu CPF.</p>);
@@ -911,15 +908,16 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                 });
                 break;
             case 'AWAITING_NEW_CLIENT_CPF':
-                 const cleanCpfForNewClient = input.replace(/[.-]/g, '');
+                const cleanCpfForNewClient = input.replace(/[.-]/g, '');
                 const clientAlreadyExists = clients.find(c => c.cpf.replace(/[.-]/g, '') === cleanCpfForNewClient);
             
                 if (clientAlreadyExists) {
                     thinkAndRespond(() => {
                         addMessage('CAR CLASS', <p>Verifiquei que já existe um cadastro com este CPF em nome de {clientAlreadyExists.name}. Vamos continuar com ele.</p>);
                     });
-                    // ... existing client flow logic ...
-                     setTimeout(() => {
+            
+                    // Use a timeout to ensure the "found you" message appears before the next logical step
+                    setTimeout(() => {
                         const existingAppointment = appointments.find(app => app.clientId === clientAlreadyExists.id && app.status !== AppointmentStatus.Finished);
                         setTempData({ clientId: clientAlreadyExists.id, clientName: clientAlreadyExists.name, serviceIds: [], appointmentToChangeId: existingAppointment?.id });
             
@@ -932,14 +930,35 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                                 setConversationState('AWAITING_EXISTING_APPOINTMENT_ACTION');
                             });
                         } else {
-                            // ... plan logic for existing client found in registration ...
-                             const clientPlan = monthlyPlans.find(p => p.id === clientAlreadyExists.monthlyPlanId);
+                            const clientPlan = monthlyPlans.find(p => p.id === clientAlreadyExists.monthlyPlanId);
                             if (clientPlan) {
-                                // ... logic ...
+                                const getFirstDayOfCurrentMonth = () => {
+                                    const now = new Date();
+                                    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                                };
+                                const currentCycleStart = getFirstDayOfCurrentMonth();
+                                const usage = clientPlanUsages.find(u => u.clientId === clientAlreadyExists.id && u.cycleStartDate === currentCycleStart);
+            
+                                const remainingServicesText = clientPlan.includedServices.map(item => {
+                                    const service = services.find(s => s.id === item.serviceId);
+                                    if (!service) return null;
+                                    const used = usage?.usedServices[item.serviceId] || 0;
+                                    const remaining = item.quantity - used;
+                                    return remaining > 0 ? `${remaining}x ${service.name}` : null;
+                                }).filter(Boolean).join(', ');
+            
                                 thinkAndRespond(() => {
-                                    addMessage('CAR CLASS', <div><p>Vi que você é assinante...</p></div>); // Simplified for brevity but logic remains
+                                    addMessage('CAR CLASS', <div>
+                                        <p>Vi que você é assinante do nosso <strong>{clientPlan.name}</strong>.</p>
+                                        {remainingServicesText ?
+                                            <p className="mt-2">Este mês você ainda tem disponível: <span className="font-semibold">{remainingServicesText}</span>.</p> :
+                                            <p className="mt-2">Você já utilizou todos os serviços do seu plano este mês.</p>
+                                        }
+                                        <p className="mt-2">Gostaria de agendar um serviço do plano ou ver nosso catálogo para outros serviços?</p>
+                                    </div>);
                                     setConversationState('AWAITING_SERVICE_CHOICE_METHOD');
                                 });
+            
                             } else {
                                 thinkAndRespond(() => {
                                     addMessage('CAR CLASS', <p>Como podemos ajudar hoje?</p>);
@@ -980,7 +999,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                     });
                 }
                 break;
-             case 'AWAITING_PLAN_SELECTION':
+            case 'AWAITING_PLAN_SELECTION':
                 let chosenPlan: MonthlyPlan | undefined;
                 const planNumber = (input.match(/\d+/) || [])[0];
                 if (planNumber) {
@@ -1044,9 +1063,10 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                 handleServiceSelectionLogic(input);
                 break;
             case 'AWAITING_DATE_AND_TIME_CHOICE':
-                 const parseDateTimeSelection = (text: string, options: {date: Date, slots: string[]}[]): { date: Date, time: string } | null => {
-                     // ... (Reuse exact same parsing logic) ...
+                const parseDateTimeSelection = (text: string, options: {date: Date, slots: string[]}[]): { date: Date, time: string } | null => {
                     const localNormalizedInput = normalizeText(text);
+
+                    // Try numeric format first (e.g., "1 14:00")
                     const numericMatch = localNormalizedInput.match(/^(\d+)\s+(\d{1,2}:\d{2})$/);
                     if (numericMatch) {
                         const dateIndex = parseInt(numericMatch[1], 10) - 1;
@@ -1108,6 +1128,8 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                     if ((isTarde || isNoite) && hour < 12) {
                         hour += 12;
                     } else if (!isManha && hour >= 1 && hour <= 7) { 
+                        // Heuristic for single-digit hours without context, assume PM for a business
+                        // e.g. "as quatro" -> 16:00
                         hour += 12;
                     }
 
@@ -1120,6 +1142,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                         return { date: matchingOption.date, time: targetTime };
                     }
                     
+                    // Fallback for cases like "quinta 16:00" that might be missed by the complex logic above
                     const fallbackTimeMatch = localNormalizedInput.match(/(\d{1,2}:\d{2})/);
                     if(fallbackTimeMatch) {
                         const fallbackTime = fallbackTimeMatch[1];
@@ -1174,7 +1197,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                 }
                 break;
             case 'AWAITING_VEHICLE_CONFIRMATION':
-                 const currentClient = clients.find(c => c.id === tempData.clientId);
+                const currentClient = clients.find(c => c.id === tempData.clientId);
                 if (!currentClient) return;
 
                 const proceedToPayment = (finalData: TempAppointmentData) => {
@@ -1294,6 +1317,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
     useEffect(() => {
         if (conversationState === 'FINISHED' && !isConversationFinished) {
             const finalMessages = [...messages];
+             // The last user message that triggered this state change isn't in `messages` yet
             if(userInput) finalMessages.push({ sender: 'Cliente', isBot: false, content: <p>{userInput}</p>});
 
             onConversationFinished({
@@ -1313,7 +1337,6 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
         setTempData({ serviceIds: [] });
         setIsConversationFinished(false);
         setActiveConversationId('live');
-        onConversationStarted(); // Trigger notification
         
         thinkAndRespond(() => {
             addMessage('CAR CLASS', <p>Olá! Bem-vindo à <span className="font-bold">CAR CLASS</span>. Você já é nosso cliente? (Sim/Não)</p>);
@@ -1330,11 +1353,9 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
             setConversationState('GREETING');
             setIsConversationFinished(false);
         }
-        // QR Code update is handled by props now
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status]);
     
-    // ... (rest of WhatsAppView render) ...
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isTyping]);
@@ -1417,7 +1438,7 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                                             className="w-full bg-brand-gray-light border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red disabled:opacity-50"
                                             disabled={commonInputDisabledState}
                                         />
-                                        <button type="submit" className={`${commonButtonClasses} bg-brand-red hover:bg-brand-red-hover`} disabled={commonInputDisabledState}>
+                                        <button type="submit" className={`${commonButtonClasses} bg-brand-red hover:bg-red-700`} disabled={commonInputDisabledState}>
                                             <PaperAirplaneIcon className="w-5 h-5" />
                                         </button>
                                     </form>
@@ -1448,27 +1469,16 @@ const WhatsAppView = ({ status, services, clients, appointments, onClientAdded, 
                         <PhoneIcon className="w-6 h-6"/> Conectar
                     </button>
                 </div>
-            ) : ( // loading / scanning
+            ) : ( // loading
                  <div className="flex-grow flex flex-col items-center justify-center text-center p-4">
-                    <div className="bg-white p-2 rounded-lg mb-6 shadow-[0_0_30px_rgba(102,13,10,0.4)] transition-all duration-500 transform scale-100">
-                        {qrCodeData ? (
-                            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(qrCodeData)}&bgcolor=ffffff&color=000000&margin=10&qzone=4`} alt="QR Code para WhatsApp" className="w-64 h-64 rounded-sm" />
-                        ) : (
-                            <div className="w-64 h-64 flex items-center justify-center bg-gray-100 rounded-sm">
-                                <ArrowPathIcon className="w-8 h-8 text-gray-400 animate-spin" />
-                            </div>
-                        )}
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-3">Escaneie o QR Code</h3>
-                    <div className="text-gray-400 space-y-2 text-sm bg-brand-gray-medium p-4 rounded-lg border border-white/5 max-w-md mx-auto text-left">
-                        <p className="flex items-center gap-2"><span className="bg-brand-gray-light w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold">1</span> Abra o WhatsApp no seu celular.</p>
-                        <p className="flex items-center gap-2"><span className="bg-brand-gray-light w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold">2</span> Toque em <strong>Menu</strong> (Android) ou <strong>Configurações</strong> (iPhone).</p>
-                        <p className="flex items-center gap-2"><span className="bg-brand-gray-light w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold">3</span> Toque em <strong>Aparelhos conectados</strong> &gt; <strong>Conectar aparelho</strong>.</p>
-                        <p className="flex items-center gap-2"><span className="bg-brand-gray-light w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold">4</span> Aponte a câmera para esta tela.</p>
-                    </div>
-                    <p className="text-brand-red mt-6 text-sm font-semibold animate-pulse flex items-center gap-2">
-                        <ArrowPathIcon className="w-4 h-4 animate-spin"/> Aguardando leitura do servidor...
-                    </p>
+                    {qrCodeImg ? (
+                        <img src={qrCodeImg} alt="QR Code WhatsApp" className="w-64 h-64 mb-4 border-4 border-white/10 rounded-lg" />
+                    ) : (
+                        <QrCodeIcon className="w-48 h-48 text-white mb-4 animate-pulse"/>
+                    )}
+                    <h3 className="text-xl font-bold text-white">Aguardando Conexão</h3>
+                    <p className="text-gray-400 mt-2 max-w-md">Abra o WhatsApp em seu celular e escaneie o QR Code acima.</p>
+                    <p className="text-yellow-400 mt-4 text-sm">O sistema verificará a conexão automaticamente...</p>
                 </div>
             )}
         </div>
@@ -1480,7 +1490,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
     if (!isOpen) return null;
     return (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose} aria-modal="true" role="dialog">
-            <div className="bg-brand-gray-medium rounded-lg shadow-xl w-full max-w-md border border-brand-red/50" onClick={e => e.stopPropagation()}>
+            <div className="bg-brand-gray-medium rounded-lg shadow-xl w-full max-w-md border border-brand-red-dark/50" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center p-4 border-b border-white/10">
                     <h3 className="text-xl font-bold text-white">{title}</h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Fechar modal"><XMarkIcon className="w-6 h-6" /></button>
@@ -1490,315 +1500,963 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
         </div>
     );
 };
-// ... (Other components remain the same until App) ...
 
-// LoginView and DashboardView components omitted for brevity as they are unchanged structurally, 
-// just referencing them to keep file size manageable in output. 
-// Assuming they exist in the full file context provided previously.
-
-// ... (FormInput, ClientForm, AppointmentForm, ServiceForm, SettingsView, DashboardView, LoginView) ...
-
-// Placeholder for Dashboard/Login/Settings to ensure XML validity if I cut them too much, 
-// but in a real patch scenario, I assume I'm replacing the App component block.
-// Re-inserting necessary components for full compilation context if user copies all:
-
-type FormInputProps = { label: string; type?: string; value: any; onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void; required?: boolean; placeholder?: string; options?: { label: string; value: string }[]; isTextArea?: boolean; disabled?: boolean; className?: string };
-const FormInput: React.FC<FormInputProps> = ({ label, type = 'text', value, onChange, required, placeholder, options, isTextArea, disabled, className }) => (
-    <div className={`mb-4 ${className}`}>
-        <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-        {isTextArea ? (
-            <textarea value={value} onChange={onChange} required={required} placeholder={placeholder} disabled={disabled} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red disabled:opacity-50 h-24 resize-none" />
-        ) : options ? (
-            <select value={value} onChange={onChange} required={required} disabled={disabled} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red disabled:opacity-50">
-                <option value="">Selecione...</option>
-                {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-            </select>
-        ) : (
-            <input type={type} value={value} onChange={onChange} required={required} placeholder={placeholder} disabled={disabled} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red disabled:opacity-50" />
-        )}
+const FormInput = ({ label, className, ...props }: { label: string, className?: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
+    <div>
+        <label htmlFor={props.id || props.name} className={`block text-sm font-medium text-gray-300 mb-1 ${label ? '' : 'sr-only'}`}>{label}</label>
+        <input {...props} className={`w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red ${className}`} />
     </div>
 );
 
-const ClientForm = ({ client, onSave, onCancel, monthlyPlans }: { client: Client | null; onSave: (data: any) => void; onCancel: () => void; monthlyPlans: MonthlyPlan[] }) => {
-    const [formData, setFormData] = useState({ name: '', cpf: '', whatsapp: '', monthlyPlanId: '' });
-    useEffect(() => {
-        if (client) setFormData({ name: client.name, cpf: client.cpf, whatsapp: client.whatsapp, monthlyPlanId: client.monthlyPlanId || '' });
-        else setFormData({ name: '', cpf: '', whatsapp: '', monthlyPlanId: '' });
-    }, [client]);
-    return (
-        <form onSubmit={(e) => { e.preventDefault(); onSave({ ...formData, id: client?.id }); }} className="space-y-4">
-            <FormInput label="Nome Completo" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
-            <FormInput label="CPF" value={formData.cpf} onChange={e => setFormData({ ...formData, cpf: e.target.value })} required />
-            <FormInput label="WhatsApp" value={formData.whatsapp} onChange={e => setFormData({ ...formData, whatsapp: e.target.value })} required />
-            <FormInput 
-                label="Plano Mensal" 
-                value={formData.monthlyPlanId} 
-                onChange={e => setFormData({ ...formData, monthlyPlanId: e.target.value })}
-                options={monthlyPlans.map(p => ({ label: `${p.name} (R$ ${p.price.toFixed(2)})`, value: p.id }))} 
-            />
-            <div className="flex justify-end gap-2 pt-4">
-                <button type="button" onClick={onCancel} className="px-4 py-2 text-sm text-gray-300 hover:text-white">Cancelar</button>
-                <button type="submit" className="px-4 py-2 bg-brand-red hover:bg-brand-red-hover text-white rounded-md font-bold">Salvar</button>
-            </div>
-        </form>
-    );
+type AutomatedMessageModalProps = {
+    isOpen: boolean;
+    message: AutomatedMessage | null;
+    onSave: (message: AutomatedMessage) => void;
+    onClose: () => void;
 };
 
-const AppointmentForm = ({ appointment, clients, services, monthlyPlans, clientPlanUsages, onSave, onCancel }: { appointment: Appointment | null; clients: Client[]; services: Service[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; onSave: (data: any) => void; onCancel: () => void; }) => {
-    const [formData, setFormData] = useState<{clientId: string; carId: string; serviceIds: string[]; date: string; time: string; paymentMethod: string}>({ clientId: '', carId: '', serviceIds: [], date: '', time: '', paymentMethod: '' });
-    
-    useEffect(() => {
-        if (appointment) setFormData({ clientId: appointment.clientId, carId: appointment.carId, serviceIds: appointment.serviceIds, date: appointment.date, time: appointment.time, paymentMethod: appointment.paymentMethod || '' });
-        else setFormData({ clientId: '', carId: '', serviceIds: [], date: new Date().toISOString().split('T')[0], time: '', paymentMethod: '' });
-    }, [appointment]);
+const AutomatedMessageModal: React.FC<AutomatedMessageModalProps> = ({ isOpen, message, onSave, onClose }) => {
+    const [formData, setFormData] = useState<Omit<AutomatedMessage, 'id'>>({
+        name: '',
+        enabled: true,
+        trigger: 'before_appointment',
+        value: 24,
+        unit: 'hours',
+        message: ''
+    });
 
-    const selectedClient = clients.find(c => c.id === formData.clientId);
+    useEffect(() => {
+        if (message) {
+            setFormData({
+                name: message.name,
+                enabled: message.enabled,
+                trigger: message.trigger,
+                value: message.value,
+                unit: message.unit,
+                message: message.message
+            });
+        } else {
+            // Reset for new message
+            setFormData({
+                name: '',
+                enabled: true,
+                trigger: 'before_appointment',
+                value: 24,
+                unit: 'hours',
+                message: ''
+            });
+        }
+    }, [message]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value, type } = e.target;
+        if (type === 'checkbox') {
+            const checked = (e.target as HTMLInputElement).checked;
+            setFormData(prev => ({ ...prev, [name]: checked }));
+        } else {
+            setFormData(prev => ({ ...prev, [name]: value }));
+        }
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const messageToSave = {
+            ...formData,
+            id: message?.id || `msg-${Date.now()}` // Use existing id or generate a new one
+        };
+        onSave(messageToSave);
+    };
     
-    const toggleService = (serviceId: string) => {
-        setFormData(prev => {
-            const current = prev.serviceIds;
-            if (current.includes(serviceId)) return { ...prev, serviceIds: current.filter(id => id !== serviceId) };
-            return { ...prev, serviceIds: [...current, serviceId] };
-        });
+    const triggerLabels: Record<AutomatedMessage['trigger'], string> = {
+         before_appointment: 'Antes do Agendamento',
+         after_service_finished: 'Após Finalizar Serviço',
+         service_maintenance_due: 'Lembrete de Manutenção de Serviço',
     };
 
     return (
-        <form onSubmit={(e) => { e.preventDefault(); onSave({ ...formData, id: appointment?.id, status: appointment?.status || AppointmentStatus.Scheduled }); }} className="space-y-4">
-            <FormInput 
-                label="Cliente" 
-                value={formData.clientId} 
-                onChange={e => setFormData({ ...formData, clientId: e.target.value, carId: '' })} 
-                options={clients.map(c => ({ label: c.name, value: c.id }))} 
-                required 
-                disabled={!!appointment}
-            />
-            {selectedClient && (
-                <FormInput 
-                    label="Veículo" 
-                    value={formData.carId} 
-                    onChange={e => setFormData({ ...formData, carId: e.target.value })} 
-                    options={selectedClient.cars.map(c => ({ label: `${c.model} (${c.plate})`, value: c.id }))} 
-                    required 
-                />
-            )}
-            <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Serviços</label>
-                <div className="space-y-2 max-h-40 overflow-y-auto p-2 bg-brand-gray-dark rounded-md border border-brand-gray-light">
-                    {services.map(service => (
-                        <label key={service.id} className="flex items-center gap-2 cursor-pointer p-1 hover:bg-white/5 rounded">
-                            <input 
-                                type="checkbox" 
-                                checked={formData.serviceIds.includes(service.id)} 
-                                onChange={() => toggleService(service.id)}
-                                className="rounded border-gray-500 text-brand-red focus:ring-brand-red bg-gray-700"
-                            />
-                            <span className="text-sm text-gray-200">{service.name}</span>
-                        </label>
-                    ))}
+        <Modal isOpen={isOpen} onClose={onClose} title={message ? 'Editar Mensagem' : 'Nova Mensagem Automática'}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <label htmlFor="enabled" className="font-medium text-white">Ativada</label>
+                    <input type="checkbox" id="enabled" name="enabled" checked={formData.enabled} onChange={handleChange} className="w-4 h-4 text-brand-red bg-gray-700 border-gray-600 rounded focus:ring-brand-red" />
                 </div>
-            </div>
-             <div className="grid grid-cols-2 gap-4">
-                <FormInput label="Data" type="date" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} required />
-                <FormInput label="Hora" type="time" value={formData.time} onChange={e => setFormData({ ...formData, time: e.target.value })} required />
-            </div>
-            <FormInput
-                label="Forma de Pagamento"
-                value={formData.paymentMethod}
-                onChange={e => setFormData({...formData, paymentMethod: e.target.value})}
-                options={[{label: 'PIX', value: 'PIX'}, {label: 'Cartão de Crédito', value: 'Cartão de Crédito'}, {label: 'Cartão de Débito', value: 'Cartão de Débito'}, {label: 'Dinheiro', value: 'Dinheiro'}]}
-            />
-            <div className="flex justify-end gap-2 pt-4">
-                <button type="button" onClick={onCancel} className="px-4 py-2 text-sm text-gray-300 hover:text-white">Cancelar</button>
-                <button type="submit" className="px-4 py-2 bg-brand-red hover:bg-brand-red-hover text-white rounded-md font-bold">Salvar</button>
-            </div>
-        </form>
+                <FormInput label="Nome da Mensagem" name="name" value={formData.name} onChange={handleChange} required />
+                <div>
+                    <label htmlFor="trigger" className="block text-sm font-medium text-gray-300 mb-1">Gatilho (Quando enviar)</label>
+                    <select id="trigger" name="trigger" value={formData.trigger} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                        {Object.entries(triggerLabels).map(([key, label]) => (
+                            <option key={key} value={key}>{label}</option>
+                        ))}
+                    </select>
+                </div>
+                {formData.trigger !== 'service_maintenance_due' && (
+                    <div className="flex gap-2 items-end">
+                        <div className="flex-grow">
+                            <FormInput label="Valor" type="number" name="value" value={formData.value} onChange={handleChange} required />
+                        </div>
+                        <div>
+                            <label htmlFor="unit" className="block text-sm font-medium text-gray-300 mb-1">Unidade</label>
+                            <select id="unit" name="unit" value={formData.unit} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                                <option value="hours">Horas</option>
+                                <option value="days">Dias</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+                <div>
+                    <label htmlFor="message" className="block text-sm font-medium text-gray-300 mb-1">Mensagem</label>
+                    <textarea id="message" name="message" value={formData.message} onChange={handleChange} rows={4} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red" required></textarea>
+                    <p className="text-xs text-gray-400 mt-1">Use variáveis como `[CLIENTE]`, `[CARRO_MODELO]`, `[SERVICO]`, `[DATA]`.</p>
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
+                    <button type="button" onClick={onClose} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                    <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar</button>
+                </div>
+            </form>
+        </Modal>
     );
 };
 
-const ServiceForm = ({ service, onSave, onCancel }: { service: Service | null; onSave: (data: any) => void; onCancel: () => void; }) => {
-    const [formData, setFormData] = useState({ name: '', description: '', duration: 30, price: 0 });
-    useEffect(() => {
-        if (service) setFormData({ name: service.name, description: service.description, duration: service.duration, price: service.price });
-        else setFormData({ name: '', description: '', duration: 30, price: 0 });
-    }, [service]);
-    return (
-        <form onSubmit={(e) => { e.preventDefault(); onSave({ ...formData, id: service?.id }); }} className="space-y-4">
-             <FormInput label="Nome do Serviço" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
-             <FormInput label="Descrição" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} required isTextArea />
-             <div className="grid grid-cols-2 gap-4">
-                <FormInput label="Duração (min)" type="number" value={formData.duration} onChange={e => setFormData({ ...formData, duration: Number(e.target.value) })} required />
-                <FormInput label="Preço (R$)" type="number" value={formData.price} onChange={e => setFormData({ ...formData, price: Number(e.target.value) })} required />
-            </div>
-            <div className="flex justify-end gap-2 pt-4">
-                <button type="button" onClick={onCancel} className="px-4 py-2 text-sm text-gray-300 hover:text-white">Cancelar</button>
-                <button type="submit" className="px-4 py-2 bg-brand-red hover:bg-brand-red-hover text-white rounded-md font-bold">Salvar</button>
-            </div>
-        </form>
-    );
-};
+const SettingsView = ({
+    operatingHours,
+    automatedMessages,
+    monthlyPlans,
+    services,
+    credentials,
+    onSave,
+    onFileUpload,
+    catalogFiles,
+    isProcessingFile,
+    onFileDelete,
+}: {
+    operatingHours: OperatingHours;
+    automatedMessages: AutomatedMessage[];
+    monthlyPlans: MonthlyPlan[];
+    services: Service[];
+    credentials: { login: string; password: string };
+    onSave: (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], credentials: { login: string; password: string; } }) => void;
+    onFileUpload: (files: File[]) => void;
+    catalogFiles: { id: string; file: File }[];
+    isProcessingFile: boolean;
+    onFileDelete: (fileId: string) => void;
+}) => {
+    const [localOperatingHours, setLocalOperatingHours] = useState<OperatingHours>(operatingHours);
+    const [localMessages, setLocalMessages] = useState<AutomatedMessage[]>(automatedMessages);
+    const [localPlans, setLocalPlans] = useState<MonthlyPlan[]>(monthlyPlans);
+    const [localCredentials, setLocalCredentials] = useState(credentials);
+    const [newTime, setNewTime] = useState('');
+    const [editingMessage, setEditingMessage] = useState<AutomatedMessage | 'new' | null>(null);
+    const [editingPlan, setEditingPlan] = useState<MonthlyPlan | 'new' | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-// ... (DashboardView, SettingsView, LoginView components) ...
-const DashboardView = ({ appointments, clients, services, monthlyPlans }: { appointments: Appointment[]; clients: Client[]; services: Service[]; monthlyPlans: MonthlyPlan[] }) => {
-    const totalClients = clients.length;
-    const activeAppointments = appointments.filter(a => a.status !== AppointmentStatus.Finished).length;
-    const revenue = appointments.filter(a => a.status === AppointmentStatus.Finished).reduce((acc, app) => {
-        const appServices = app.serviceIds.map(id => services.find(s => s.id === id)).filter(Boolean) as Service[];
-        return acc + appServices.reduce((sum, s) => sum + s.price, 0);
-    }, 0);
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            onFileUpload(Array.from(e.target.files));
+        }
+    };
+
+    const handleCredentialsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setLocalCredentials(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleDayToggle = (dayIndex: number) => {
+        const newDaysOpen = localOperatingHours.daysOpen.includes(dayIndex)
+            ? localOperatingHours.daysOpen.filter(d => d !== dayIndex)
+            : [...localOperatingHours.daysOpen, dayIndex];
+        setLocalOperatingHours({ ...localOperatingHours, daysOpen: newDaysOpen });
+    };
+
+    const handleAddTime = () => {
+        if (newTime.match(/^\d{2}:\d{2}$/) && !localOperatingHours.availableTimes.includes(newTime)) {
+            const updatedTimes = [...localOperatingHours.availableTimes, newTime].sort();
+            setLocalOperatingHours({ ...localOperatingHours, availableTimes: updatedTimes });
+            setNewTime('');
+        } else {
+            alert('Formato de hora inválido (use HH:MM) ou horário já existente.');
+        }
+    };
+
+    const handleRemoveTime = (timeToRemove: string) => {
+        const updatedTimes = localOperatingHours.availableTimes.filter(t => t !== timeToRemove);
+        setLocalOperatingHours({ ...localOperatingHours, availableTimes: updatedTimes });
+    };
+
+    const handleSaveMessage = (message: AutomatedMessage) => {
+        const isNew = !localMessages.some(m => m.id === message.id);
+        if (isNew) {
+            setLocalMessages(prev => [...prev, { ...message, id: `msg-${Date.now()}` }]);
+        } else {
+            setLocalMessages(prev => prev.map(m => m.id === message.id ? message : m));
+        }
+        setEditingMessage(null);
+    };
+
+    const handleDeleteMessage = (id: string) => {
+        if (window.confirm('Tem certeza que deseja excluir esta mensagem automática?')) {
+            setLocalMessages(prev => prev.filter(m => m.id !== id));
+        }
+    };
+    
+     const handleSavePlan = (plan: MonthlyPlan) => {
+        const isNew = !localPlans.some(p => p.id === plan.id);
+        if (isNew) {
+            setLocalPlans(prev => [...prev, { ...plan, id: `plan-${Date.now()}` }]);
+        } else {
+            setLocalPlans(prev => prev.map(p => p.id === plan.id ? plan : p));
+        }
+        setEditingPlan(null);
+    };
+
+    const handleDeletePlan = (id: string) => {
+        if (window.confirm('Tem certeza que deseja excluir este plano? Clientes associados a ele perderão o vínculo.')) {
+            setLocalPlans(prev => prev.filter(p => p.id !== id));
+        }
+    };
+
+    const handleSaveChanges = () => {
+        onSave({
+            operatingHours: localOperatingHours,
+            automatedMessages: localMessages,
+            monthlyPlans: localPlans,
+            credentials: localCredentials,
+        });
+    };
+
+    const weekdays = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+    const triggerLabels: Record<AutomatedMessage['trigger'], string> = {
+        before_appointment: 'Antes do Agendamento',
+        after_service_finished: 'Após Finalizar Serviço',
+        service_maintenance_due: 'Lembrete de Manutenção de Serviço',
+    };
 
     return (
         <div className="p-4 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-brand-gray-medium p-6 rounded-lg border border-white/10 flex items-center gap-4">
-                    <div className="p-3 bg-blue-900/30 rounded-full"><UsersIcon className="w-8 h-8 text-blue-400" /></div>
-                    <div><p className="text-gray-400 text-sm">Total de Clientes</p><p className="text-2xl font-bold text-white">{totalClients}</p></div>
-                </div>
-                 <div className="bg-brand-gray-medium p-6 rounded-lg border border-white/10 flex items-center gap-4">
-                    <div className="p-3 bg-yellow-900/30 rounded-full"><CalendarDaysIcon className="w-8 h-8 text-yellow-400" /></div>
-                    <div><p className="text-gray-400 text-sm">Agendamentos Ativos</p><p className="text-2xl font-bold text-white">{activeAppointments}</p></div>
-                </div>
-                 <div className="bg-brand-gray-medium p-6 rounded-lg border border-white/10 flex items-center gap-4">
-                    <div className="p-3 bg-green-900/30 rounded-full"><CurrencyDollarIcon className="w-8 h-8 text-green-400" /></div>
-                    <div><p className="text-gray-400 text-sm">Receita Estimada</p><p className="text-2xl font-bold text-white">R$ {revenue.toFixed(2)}</p></div>
+             <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-xl font-bold text-brand-red mb-4">Acesso ao Sistema</h3>
+                <div className="space-y-4">
+                    <FormInput label="Usuário (Login)" name="login" value={localCredentials.login} onChange={handleCredentialsChange} placeholder="Ex: admin" />
+                    <FormInput label="Senha" name="password" type="password" value={localCredentials.password} onChange={handleCredentialsChange} placeholder="••••••••" />
                 </div>
             </div>
-            
-            <div className="bg-brand-gray-medium p-6 rounded-lg border border-white/10">
-                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><TrophyIcon className="w-6 h-6 text-yellow-500"/> Planos Mais Populares</h3>
+
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-xl font-bold text-brand-red mb-4">Dias de Funcionamento</h3>
                 <div className="space-y-3">
-                    {monthlyPlans.map(plan => {
-                        const subscribers = clients.filter(c => c.monthlyPlanId === plan.id).length;
-                        return (
-                            <div key={plan.id} className="flex items-center justify-between p-3 bg-brand-gray-dark rounded-md">
-                                <span className="font-medium text-white">{plan.name}</span>
-                                <span className="text-sm text-gray-400">{subscribers} assinantes</span>
-                            </div>
-                        )
-                    })}
-                    {monthlyPlans.length === 0 && <p className="text-gray-500 text-sm text-center">Nenhum plano cadastrado.</p>}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const SettingsView = ({ operatingHours, automatedMessages, monthlyPlans, services, credentials, onSave, onFileUpload, catalogFiles, isProcessingFile, onFileDelete }: { operatingHours: OperatingHours; automatedMessages: AutomatedMessage[]; monthlyPlans: MonthlyPlan[]; services: Service[]; credentials: {login: string; password: string;}; onSave: (settings: any) => void; onFileUpload: (files: File[]) => void; catalogFiles: any[]; isProcessingFile: boolean; onFileDelete: (id: string) => void; }) => {
-    const [localHours, setLocalHours] = useState(operatingHours);
-    const [localMessages, setLocalMessages] = useState(automatedMessages);
-    const [localPlans, setLocalPlans] = useState(monthlyPlans);
-    const [localCredentials, setLocalCredentials] = useState(credentials);
-
-    const daysOfWeek = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-    const toggleDay = (dayIndex: number) => {
-        setLocalHours(prev => {
-            const isOpen = prev.daysOpen.includes(dayIndex);
-            return { ...prev, daysOpen: isOpen ? prev.daysOpen.filter(d => d !== dayIndex) : [...prev.daysOpen, dayIndex].sort() };
-        });
-    };
-
-    const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const times = e.target.value.split(',').map(t => t.trim());
-        setLocalHours(prev => ({ ...prev, availableTimes: times }));
-    };
-    
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    return (
-        <div className="p-4 space-y-8">
-             <div className="bg-brand-gray-medium p-6 rounded-lg border border-white/10">
-                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><ClockIcon className="w-6 h-6 text-brand-red"/> Horário de Funcionamento</h3>
-                <div className="mb-4">
-                    <p className="text-sm text-gray-300 mb-2">Dias de Funcionamento:</p>
-                    <div className="flex flex-wrap gap-2">
-                        {daysOfWeek.map((day, index) => (
-                            <button 
-                                key={day}
-                                onClick={() => toggleDay(index)}
-                                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${localHours.daysOpen.includes(index) ? 'bg-brand-red text-white' : 'bg-brand-gray-dark text-gray-500'}`}
-                            >
-                                {day}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                <div>
-                    <p className="text-sm text-gray-300 mb-2">Horários de Agendamento (separados por vírgula):</p>
-                    <input 
-                        type="text" 
-                        value={localHours.availableTimes.join(', ')} 
-                        onChange={handleTimeChange}
-                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
-                    />
-                </div>
-            </div>
-
-             <div className="bg-brand-gray-medium p-6 rounded-lg border border-white/10">
-                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><DocumentTextIcon className="w-6 h-6 text-brand-red"/> Catálogo de Serviços (IA)</h3>
-                <div className="mb-4">
-                    <p className="text-sm text-gray-300 mb-4">Faça upload de arquivos PDF ou imagens (JPG) contendo a tabela de serviços. Nossa IA irá ler e cadastrar automaticamente.</p>
-                    <input 
-                        type="file" 
-                        multiple 
-                        accept=".pdf, .jpg, .jpeg" 
-                        ref={fileInputRef}
-                        className="hidden"
-                        onChange={(e) => {
-                            if (e.target.files) {
-                                onFileUpload(Array.from(e.target.files));
-                            }
-                        }}
-                    />
-                    <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isProcessingFile}
-                        className="flex items-center gap-2 bg-brand-gray-dark hover:bg-black border border-brand-gray-light text-white font-bold py-2 px-4 rounded-md transition-colors disabled:opacity-50"
-                    >
-                        {isProcessingFile ? <ArrowPathIcon className="w-5 h-5 animate-spin"/> : <PlusIcon className="w-5 h-5"/>}
-                        {isProcessingFile ? 'Processando...' : 'Selecionar Arquivos'}
-                    </button>
-                </div>
-                <div className="space-y-2">
-                    {catalogFiles.map(f => (
-                        <div key={f.id} className="flex items-center justify-between bg-brand-gray-dark p-3 rounded-md border border-white/5">
-                             <div className="flex items-center gap-3">
-                                 <DocumentTextIcon className="w-5 h-5 text-gray-400"/>
-                                 <span className="text-sm text-white">{f.file.name}</span>
-                             </div>
-                             <button onClick={() => onFileDelete(f.id)} className="text-red-400 hover:text-red-300"><TrashIcon className="w-4 h-4"/></button>
+                    {weekdays.map((day, index) => (
+                        <div key={day} className="flex items-center justify-between bg-brand-gray-light p-3 rounded-md">
+                            <span className="text-white font-medium">{day}</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" checked={localOperatingHours.daysOpen.includes(index)} onChange={() => handleDayToggle(index)} className="sr-only peer" />
+                                <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-brand-red/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-red"></div>
+                            </label>
                         </div>
                     ))}
                 </div>
             </div>
 
-            <div className="flex justify-end">
-                 <button onClick={() => onSave({ operatingHours: localHours, automatedMessages: localMessages, monthlyPlans: localPlans, credentials: localCredentials })} className="bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-8 rounded-md shadow-lg transition-all transform hover:scale-105">Salvar Tudo</button>
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-xl font-bold text-brand-red mb-4">Horários de Atendimento</h3>
+                <div className="flex gap-2 mb-4">
+                    <input
+                        type="time"
+                        value={newTime}
+                        onChange={(e) => setNewTime(e.target.value)}
+                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
+                        placeholder="HH:MM"
+                    />
+                    <button onClick={handleAddTime} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 rounded-md flex-shrink-0">Adicionar</button>
+                </div>
+                <div className="space-y-2">
+                     {localOperatingHours.availableTimes.length > 0 ? localOperatingHours.availableTimes.map(time => (
+                        <div key={time} className="flex items-center justify-between bg-brand-gray-light p-2 rounded-md">
+                            <span className="font-mono text-white text-lg">{time}</span>
+                            <button onClick={() => handleRemoveTime(time)} className="text-red-500 hover:text-red-400 p-1"><TrashIcon className="w-5 h-5"/></button>
+                        </div>
+                    )) : <p className="text-gray-400 text-center py-2">Nenhum horário cadastrado.</p>}
+                </div>
+            </div>
+            
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-xl font-bold text-brand-red mb-4">Configurações do Atendimento</h3>
+                <div className="bg-brand-gray-light p-3 rounded-md">
+                    <p className="text-white font-medium mb-2">Catálogo de Serviços (PDF ou JPG)</p>
+                    <p className="text-sm text-gray-400 mb-3">Estes arquivos serão processados para atualizar sua lista de serviços. Todos os arquivos serão enviados para os clientes no chat.</p>
+                    <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg"
+                        ref={fileInputRef}
+                        onChange={handleFileChange}
+                        className="hidden"
+                        id="file-upload"
+                        disabled={isProcessingFile}
+                        multiple
+                    />
+                    <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded-md transition-colors disabled:bg-blue-800 disabled:cursor-wait" disabled={isProcessingFile}>
+                         {isProcessingFile ? <> <ArrowPathIcon className="w-5 h-5 animate-spin" /> Processando...</> : <><ArchiveBoxIcon className="w-5 h-5"/>Fazer Upload do Catálogo</>}
+                    </button>
+                    {catalogFiles.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-white/20">
+                            <p className="text-sm font-semibold text-gray-300 mb-2">Arquivos Carregados:</p>
+                            <div className="space-y-2">
+                                {catalogFiles.map(({ id, file }) => (
+                                    <div key={id} className="flex items-center justify-between bg-brand-gray-dark p-2 rounded-md">
+                                        <div className="flex items-center gap-2 overflow-hidden">
+                                            {file.type.includes('pdf') ? <DocumentTextIcon className="w-5 h-5 text-brand-red flex-shrink-0"/> : <PhotoIcon className="w-5 h-5 text-brand-red flex-shrink-0"/>}
+                                            <span className="text-sm text-white truncate">{file.name}</span>
+                                        </div>
+                                        <button onClick={() => onFileDelete(id)} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0" disabled={isProcessingFile}>
+                                            <TrashIcon className="w-5 h-5"/>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-brand-red">Planos Mensais</h3>
+                    <button onClick={() => setEditingPlan('new')} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><PlusIcon className="w-4 h-4" /> Novo Plano</button>
+                </div>
+                 <div className="space-y-3">
+                     {localPlans.map(plan => (
+                         <div key={plan.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
+                             <div>
+                                 <p className="font-semibold text-white">{plan.name}</p>
+                                 <p className="text-sm text-green-400 font-bold">R$ {plan.price.toFixed(2)}/mês</p>
+                             </div>
+                             <div className="flex gap-2">
+                                 <button onClick={() => setEditingPlan(plan)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
+                                 <button onClick={() => handleDeletePlan(plan.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>
+                             </div>
+                         </div>
+                     ))}
+                     {localPlans.length === 0 && <p className="text-gray-400 text-center py-4">Nenhum plano mensal configurado.</p>}
+                 </div>
+            </div>
+
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-brand-red">Mensagens Automáticas</h3>
+                    <button onClick={() => setEditingMessage('new')} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><PlusIcon className="w-4 h-4" /> Nova Mensagem</button>
+                </div>
+                <div className="space-y-3">
+                    {localMessages.map(msg => (
+                        <div key={msg.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
+                            <div>
+                                <p className={`font-semibold ${msg.enabled ? 'text-white' : 'text-gray-500 line-through'}`}>{msg.name}</p>
+                                <p className="text-sm text-gray-400">{triggerLabels[msg.trigger]}: <span className="font-semibold">{msg.trigger !== 'service_maintenance_due' ? `${msg.value} ${msg.unit === 'hours' ? 'horas' : 'dias'}` : 'Automático'}</span></p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => setEditingMessage(msg)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
+                                <button onClick={() => handleDeleteMessage(msg.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>
+                            </div>
+                        </div>
+                    ))}
+                    {localMessages.length === 0 && <p className="text-gray-400 text-center py-4">Nenhuma mensagem automática configurada.</p>}
+                </div>
+            </div>
+
+            <button onClick={handleSaveChanges} className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-3 px-4 rounded-md transition-colors text-lg">Salvar Todas as Configurações</button>
+        
+            <AutomatedMessageModal 
+                isOpen={editingMessage !== null}
+                message={editingMessage === 'new' ? null : editingMessage}
+                onSave={handleSaveMessage}
+                onClose={() => setEditingMessage(null)}
+            />
+            
+             <MonthlyPlanModal 
+                isOpen={editingPlan !== null}
+                plan={editingPlan === 'new' ? null : editingPlan}
+                services={services}
+                onSave={handleSavePlan}
+                onClose={() => setEditingPlan(null)}
+            />
+        </div>
+    );
+};
+
+const BarChart = ({ data, labels }: { data: number[]; labels: string[] }) => {
+    const maxValue = Math.max(...data, 1); // Avoid division by zero
+    return (
+        <div className="flex justify-around items-end h-64 bg-brand-gray-light p-4 rounded-md gap-2">
+            {data.map((value, index) => (
+                <div key={index} className="flex flex-col items-center flex-1" title={`R$ ${value.toFixed(2)}`}>
+                    <div
+                        className="w-full bg-brand-red hover:bg-red-700 transition-all duration-300 rounded-t-md"
+                        style={{ height: `${(value / maxValue) * 100}%` }}
+                    ></div>
+                    <span className="text-xs text-gray-400 mt-2">{labels[index]}</span>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const DashboardView = ({ appointments, clients, services, monthlyPlans }: { appointments: Appointment[]; clients: Client[]; services: Service[]; monthlyPlans: MonthlyPlan[]; }) => {
+    const getFirstDayOfMonth = () => {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    };
+    const getToday = () => new Date().toISOString().split('T')[0];
+
+    const [startDateInput, setStartDateInput] = useState(getFirstDayOfMonth());
+    const [endDateInput, setEndDateInput] = useState(getToday());
+    const [activeStartDate, setActiveStartDate] = useState(getFirstDayOfMonth());
+    const [activeEndDate, setActiveEndDate] = useState(getToday());
+
+    const MetricCard = ({ icon, title, children, className = '' }: { icon: React.ReactNode, title: string, children?: React.ReactNode, className?: string }) => (
+        <div className={`bg-brand-gray-medium p-4 rounded-lg border border-white/10 flex flex-col ${className}`}>
+            <div className="flex items-center gap-3 mb-4">
+                <div className="bg-brand-red/20 p-2 rounded-full">{icon}</div>
+                <h3 className="text-lg font-semibold text-white">{title}</h3>
+            </div>
+            <div className="flex-grow">{children}</div>
+        </div>
+    );
+    
+    const filteredFinishedAppointments = useMemo(() => {
+        return appointments.filter(a => {
+            return a.status === AppointmentStatus.Finished && a.date >= activeStartDate && a.date <= activeEndDate;
+        });
+    }, [appointments, activeStartDate, activeEndDate]);
+
+    // --- METRICS ---
+    const getRevenue = (apps: Appointment[]) => apps
+        .flatMap(a => a.serviceIds.map(serviceId => services.find(s => s.id === serviceId)?.price || 0))
+        .reduce((sum, price) => sum + price, 0);
+
+    const dailyRevenue = useMemo(() => {
+        const todayStr = getToday();
+        const todaysAppointments = appointments.filter(a => a.status === AppointmentStatus.Finished && a.date === todayStr);
+        return getRevenue(todaysAppointments);
+    }, [appointments, services]);
+
+    const revenueForPeriod = getRevenue(filteredFinishedAppointments);
+
+    const topClients = useMemo(() => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        const appointmentsThisMonth = appointments.filter(a => {
+            const appDate = new Date(a.date + 'T00:00:00');
+            return appDate.getMonth() === currentMonth && appDate.getFullYear() === currentYear;
+        });
+
+        const clientCounts = appointmentsThisMonth.reduce((acc, app) => {
+            acc[app.clientId] = (acc[app.clientId] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+
+        return Object.entries(clientCounts)
+            .map(([clientId, count]) => ({
+                client: clients.find(c => c.id === clientId),
+                count,
+            }))
+            .filter(item => item.client)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 3);
+    }, [appointments, clients]);
+    
+    // Faturamento Mensal (last 6 months - independent of filter)
+    const monthlyRevenueData = useMemo(() => {
+        const labels: string[] = [];
+        const data: number[] = [];
+        const now = new Date();
+        const allFinished = appointments.filter(a => a.status === AppointmentStatus.Finished);
+        
+        for (let i = 5; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const monthName = date.toLocaleString('pt-BR', { month: 'short' }).replace('.', '').toLocaleUpperCase();
+            labels.push(monthName);
+            
+            const monthRevenue = getRevenue(allFinished.filter(a => {
+                const appDate = new Date(a.date + 'T00:00:00');
+                return appDate.getMonth() === date.getMonth() && appDate.getFullYear() === date.getFullYear();
+            }));
+            data.push(monthRevenue);
+        }
+        return { labels, data };
+    }, [appointments, services]);
+
+    // Serviços Mais/Menos Vendidos (based on filter)
+    const serviceCounts = filteredFinishedAppointments
+        .flatMap(a => a.serviceIds)
+        .reduce((acc, id) => {
+            acc[id] = (acc[id] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+
+    const sortedServices = Object.entries(serviceCounts)
+        .map(([id, count]) => ({ service: services.find(s => s.id === id), count }))
+        .filter(item => item.service)
+        .sort((a, b) => b.count - a.count);
+        
+    const mostSoldServices = sortedServices.slice(0, 3);
+    const leastSoldServices = sortedServices.length > 3 ? sortedServices.slice(-3).reverse() : [];
+
+    // Formas de Pagamento (based on filter)
+    const paymentMethodCounts = filteredFinishedAppointments
+        .reduce((acc, app) => {
+            if (app.paymentMethod) {
+                acc[app.paymentMethod] = (acc[app.paymentMethod] || 0) + 1;
+            }
+            return acc;
+        }, {} as Record<string, number>);
+    
+    const formatDate = (dateStr: string) => dateStr.split('-').reverse().join('/');
+
+    return (
+        <div className="p-4 space-y-4">
+             <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Filtrar por Período</label>
+                <div className="flex flex-col md:flex-row gap-2">
+                    <input
+                        type="date"
+                        value={startDateInput}
+                        onChange={e => setStartDateInput(e.target.value)}
+                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
+                    />
+                     <input
+                        type="date"
+                        value={endDateInput}
+                        onChange={e => setEndDateInput(e.target.value)}
+                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
+                    />
+                    <button 
+                        onClick={() => { setActiveStartDate(startDateInput); setActiveEndDate(endDateInput); }} 
+                        className="bg-brand-red hover:bg-red-700 text-white font-bold px-4 rounded-md"
+                    >
+                        Filtrar
+                    </button>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <MetricCard icon={<CurrencyDollarIcon className="w-8 h-8 text-brand-red"/>} title="Faturamento do Dia">
+                    <p className="text-4xl font-bold text-white">R$ {dailyRevenue.toFixed(2)}</p>
+                    <p className="text-sm text-gray-400">Receita de serviços finalizados hoje</p>
+                </MetricCard>
+
+                <MetricCard icon={<CurrencyDollarIcon className="w-8 h-8 text-brand-red"/>} title="Faturamento Bruto">
+                    <p className="text-4xl font-bold text-white">R$ {revenueForPeriod.toFixed(2)}</p>
+                    <p className="text-sm text-gray-400">De {formatDate(activeStartDate)} até {formatDate(activeEndDate)}</p>
+                </MetricCard>
+
+                <MetricCard icon={<TrophyIcon className="w-8 h-8 text-yellow-400"/>} title="Top Clientes (Mês)">
+                    {topClients.length > 0 ? (
+                        <ul className="space-y-2">
+                            {topClients.map(({ client, count }) => (
+                                <li key={client!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
+                                    <span className="text-white font-medium truncate pr-2">{client!.name}</span>
+                                    <span className="text-yellow-400 font-bold text-lg flex-shrink-0">{count}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-gray-400 text-center py-2">Nenhum agendamento este mês.</p>}
+                </MetricCard>
+            </div>
+
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-lg font-semibold text-white mb-4">Faturamento Mensal (Últimos 6 Meses)</h3>
+                <BarChart labels={monthlyRevenueData.labels} data={monthlyRevenueData.data} />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <MetricCard icon={<SparklesIcon className="w-6 h-6 text-brand-red"/>} title="Serviços Mais Vendidos (Período)">
+                    {mostSoldServices.length > 0 ? (
+                        <ul className="space-y-2">
+                            {mostSoldServices.map(({ service, count }) => (
+                                <li key={service!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
+                                    <span className="text-white font-medium truncate pr-2">{service!.name}</span>
+                                    <span className="text-brand-red font-bold text-lg flex-shrink-0">{count}x</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-gray-400 text-center py-2">Nenhum serviço finalizado no período.</p>}
+                </MetricCard>
+
+                <MetricCard icon={<ArchiveBoxIcon className="w-6 h-6 text-brand-red"/>} title="Serviços Menos Vendidos (Período)">
+                     {leastSoldServices.length > 0 ? (
+                        <ul className="space-y-2">
+                            {leastSoldServices.map(({ service, count }) => (
+                                <li key={service!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
+                                    <span className="text-white font-medium truncate pr-2">{service!.name}</span>
+                                    <span className="text-brand-red font-bold text-lg flex-shrink-0">{count}x</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-gray-400 text-center py-2">Dados insuficientes.</p>}
+                </MetricCard>
+
+                <MetricCard icon={<ChartPieIcon className="w-6 h-6 text-brand-red"/>} title="Formas de Pagamento (Período)">
+                     {Object.keys(paymentMethodCounts).length > 0 ? (
+                        <ul className="space-y-2">
+                            {Object.entries(paymentMethodCounts).sort((a, b) => b[1] - a[1]).map(([method, count]) => (
+                                <li key={method} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
+                                    <span className="text-white font-medium">{method}</span>
+                                    <span className="text-brand-red font-bold text-lg">{count}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-gray-400 text-center py-2">Nenhum pagamento registrado no período.</p>}
+                </MetricCard>
             </div>
         </div>
     );
 };
 
-const LoginView = ({ onLogin, error }: { onLogin: (u: string, p: string) => void; error: string }) => {
-    const [user, setUser] = useState('');
-    const [pass, setPass] = useState('');
+const ClientForm = ({ client, onSave, onCancel, monthlyPlans }: { client: Client | null; onSave: (client: Omit<Client, 'id'> & { id?: string }) => void; onCancel: () => void; monthlyPlans: MonthlyPlan[] }) => {
+    const [formData, setFormData] = useState({ id: client?.id || '', name: client?.name || '', cpf: client?.cpf || '', whatsapp: client?.whatsapp || '', cars: client?.cars || [], monthlyPlanId: client?.monthlyPlanId || '' });
+    const [newCar, setNewCar] = useState({ model: '', plate: '', protections: '' });
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const handleNewCarChange = (e: React.ChangeEvent<HTMLInputElement>) => setNewCar(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+    const handleAddCar = () => {
+        if (!newCar.model || !newCar.plate) {
+            alert('Modelo e placa são obrigatórios para adicionar um novo veículo.');
+            return;
+        }
+        const newVehicle: Car = { id: `car${Date.now()}`, model: newCar.model, plate: newCar.plate, protections: newCar.protections.split(',').map(p => p.trim()).filter(p => p) };
+        setFormData(prev => ({ ...prev, cars: [...prev.cars, newVehicle] }));
+        setNewCar({ model: '', plate: '', protections: '' });
+    };
+    
+    const handleDeleteCar = (carId: string) => setFormData(prev => ({ ...prev, cars: prev.cars.filter(car => car.id !== carId) }));
+
+    const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSave(formData); };
+
     return (
-        <div className="min-h-screen flex items-center justify-center bg-brand-gray-dark p-4">
-            <div className="bg-brand-gray-medium p-8 rounded-lg shadow-2xl border border-brand-red/30 w-full max-w-md">
-                <div className="text-center mb-8">
-                    <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="Logo" className="w-24 h-24 rounded-full mx-auto mb-4 shadow-lg" />
-                    <h1 className="text-2xl font-bold text-white">CAR CLASS <span className="text-brand-red">MANAGER</span></h1>
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <FormInput label="Nome Completo" name="name" value={formData.name} onChange={handleChange} required />
+            <FormInput label="CPF" name="cpf" value={formData.cpf} onChange={handleChange} required />
+            <FormInput label="WhatsApp (com DDD)" name="whatsapp" value={formData.whatsapp} onChange={handleChange} required />
+            
+             <div>
+                <label htmlFor="monthlyPlanId" className="block text-sm font-medium text-gray-300 mb-1">Plano Mensal</label>
+                <select id="monthlyPlanId" name="monthlyPlanId" value={formData.monthlyPlanId} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                    <option value="">Nenhum Plano</option>
+                    {monthlyPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                </select>
+            </div>
+            
+            <div className="pt-4 border-t border-white/20 mt-4">
+                <h4 className="text-lg font-semibold text-brand-red mb-3">Veículos</h4>
+                <div className="space-y-2 mb-4">
+                    {formData.cars.map(car => (
+                        <div key={car.id} className="bg-brand-gray-dark p-2 rounded-md flex justify-between items-center">
+                            <div>
+                                <p className="font-semibold text-white">{car.model} ({car.plate})</p>
+                                <p className="text-xs text-gray-400">{car.protections.join(', ')}</p>
+                            </div>
+                            <button type="button" onClick={() => handleDeleteCar(car.id)} className="text-red-400 hover:text-red-300"><TrashIcon className="w-4 h-4"/></button>
+                        </div>
+                    ))}
                 </div>
-                <form onSubmit={e => { e.preventDefault(); onLogin(user, pass); }} className="space-y-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">Usuário</label>
-                        <input type="text" value={user} onChange={e => setUser(e.target.value)} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-3 focus:ring-brand-red focus:border-brand-red" />
+                <div className="bg-brand-gray-dark/50 p-3 rounded-md space-y-2 border border-dashed border-white/20">
+                    <h5 className="font-semibold text-white">Adicionar Novo Veículo</h5>
+                    <FormInput label="Modelo" name="model" value={newCar.model} onChange={handleNewCarChange} placeholder="Ex: Honda Civic" />
+                    <FormInput label="Placa" name="plate" value={newCar.plate} onChange={handleNewCarChange} placeholder="ABC-1234" />
+                    <FormInput label="Proteções (separado por vírgula)" name="protections" value={newCar.protections} onChange={handleNewCarChange} placeholder="PPF, Vitrificação 5 anos" />
+                    <button type="button" onClick={handleAddCar} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md mt-2">Adicionar Veículo</button>
+                </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Cliente</button>
+            </div>
+        </form>
+    );
+};
+
+const AppointmentForm = ({ appointment, clients, services, monthlyPlans, clientPlanUsages, onSave, onCancel }: { appointment: Appointment | null; clients: Client[]; services: Service[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; onSave: (appointment: Omit<Appointment, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
+    const [formData, setFormData] = useState({
+        id: appointment?.id || '',
+        clientId: appointment?.clientId || '',
+        carId: appointment?.carId || '',
+        serviceIds: appointment?.serviceIds || [],
+        date: appointment?.date || new Date().toISOString().split('T')[0],
+        time: appointment?.time || '09:00',
+        status: appointment?.status || AppointmentStatus.Scheduled,
+        isPlanService: appointment?.isPlanService || false,
+        paymentMethod: appointment?.paymentMethod || '',
+    });
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+    
+    const handleServiceChange = (serviceId: string) => {
+        setFormData(prev => {
+            const newServiceIds = prev.serviceIds.includes(serviceId)
+                ? prev.serviceIds.filter(id => id !== serviceId)
+                : [...prev.serviceIds, serviceId];
+            return { ...prev, serviceIds: newServiceIds };
+        });
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const client = clients.find(c => c.id === formData.clientId);
+        const plan = monthlyPlans.find(p => p.id === client?.monthlyPlanId);
+        const isAnyServiceInPlan = formData.serviceIds.some(sid => plan?.includedServices.some(is => is.serviceId === sid));
+        
+        // Fix: Correctly handle the paymentMethod type before saving.
+        // An empty string from the form is converted to `undefined`, and a valid value is cast to the correct type.
+        const dataToSave: Omit<Appointment, 'id'> & { id?: string } = {
+            ...formData,
+            isPlanService: isAnyServiceInPlan,
+            paymentMethod: formData.paymentMethod ? (formData.paymentMethod as Appointment['paymentMethod']) : undefined,
+        };
+        
+        onSave(dataToSave);
+    };
+
+    const selectedClient = clients.find(c => c.id === formData.clientId);
+    const clientPlan = monthlyPlans.find(p => p.id === selectedClient?.monthlyPlanId);
+    
+    const getFirstDayOfCurrentMonth = () => {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    };
+    const currentCycleStart = getFirstDayOfCurrentMonth();
+    const clientUsage = clientPlanUsages.find(u => u.clientId === selectedClient?.id && u.cycleStartDate === currentCycleStart);
+
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+             <div>
+                 <label htmlFor="clientId" className="block text-sm font-medium text-gray-300 mb-1">Cliente</label>
+                 <select id="clientId" name="clientId" value={formData.clientId} onChange={handleChange} required className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                     <option value="">Selecione um cliente</option>
+                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                 </select>
+             </div>
+             {selectedClient && (
+                 <div>
+                     <label htmlFor="carId" className="block text-sm font-medium text-gray-300 mb-1">Veículo</label>
+                     <select id="carId" name="carId" value={formData.carId} onChange={handleChange} required className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                         <option value="">Selecione um veículo</option>
+                         {selectedClient.cars.map(car => <option key={car.id} value={car.id}>{car.model} ({car.plate})</option>)}
+                     </select>
+                 </div>
+             )}
+             <div>
+                 <label className="block text-sm font-medium text-gray-300 mb-1">Serviços</label>
+                 <div className="space-y-2 max-h-40 overflow-y-auto bg-brand-gray-dark p-2 rounded-md border border-brand-gray-light">
+                     {services.map(service => {
+                         const planServiceInfo = clientPlan?.includedServices.find(is => is.serviceId === service.id);
+                         const usedCount = clientUsage?.usedServices[service.id] || 0;
+                         const isIncluded = planServiceInfo && usedCount < planServiceInfo.quantity;
+                         
+                         return (
+                             <div key={service.id} className="flex items-center justify-between">
+                                 <div className="flex items-center">
+                                     <input id={`service-${service.id}`} type="checkbox" checked={formData.serviceIds.includes(service.id)} onChange={() => handleServiceChange(service.id)} className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-brand-red focus:ring-brand-red"/>
+                                     <label htmlFor={`service-${service.id}`} className="ml-2 text-sm text-gray-300">{service.name}</label>
+                                 </div>
+                                 {isIncluded && (
+                                     <span className="text-xs font-semibold bg-yellow-600/30 text-yellow-300 px-2 py-0.5 rounded-full">Incluso no Plano</span>
+                                 )}
+                             </div>
+                         )
+                     })}
+                 </div>
+             </div>
+             <FormInput label="Data" name="date" type="date" value={formData.date} onChange={handleChange} required />
+             <FormInput label="Horário" name="time" type="time" value={formData.time} onChange={handleChange} required />
+             <div>
+                <label htmlFor="paymentMethod" className="block text-sm font-medium text-gray-300 mb-1">Forma de Pagamento</label>
+                <select id="paymentMethod" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                    <option value="">Não definido</option>
+                    <option value="PIX">PIX</option>
+                    <option value="Cartão de Crédito">Cartão de Crédito</option>
+                    <option value="Cartão de Débito">Cartão de Débito</option>
+                    <option value="Dinheiro">Dinheiro</option>
+                </select>
+            </div>
+             
+             <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                 <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                 <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Agendamento</button>
+             </div>
+        </form>
+    );
+};
+
+const MonthlyPlanModal = ({ isOpen, plan, services, onSave, onClose }: { isOpen: boolean; plan: MonthlyPlan | null; services: Service[]; onSave: (plan: MonthlyPlan) => void; onClose: () => void; }) => {
+    const [formData, setFormData] = useState<Omit<MonthlyPlan, 'id'>>({ name: '', price: 0, includedServices: [] });
+
+    useEffect(() => {
+        if (plan) {
+            setFormData({ name: plan.name, price: plan.price, includedServices: plan.includedServices });
+        } else {
+            setFormData({ name: '', price: 0, includedServices: [] });
+        }
+    }, [plan]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: name === 'price' ? parseFloat(value) || 0 : value }));
+    };
+
+    const handleServiceInclusionChange = (serviceId: string, quantity: number) => {
+        setFormData(prev => {
+            const existing = prev.includedServices.find(s => s.serviceId === serviceId);
+            if (existing) {
+                // Update quantity or remove if quantity is 0
+                return { ...prev, includedServices: quantity > 0 ? prev.includedServices.map(s => s.serviceId === serviceId ? { ...s, quantity } : s) : prev.includedServices.filter(s => s.serviceId !== serviceId) };
+            } else if (quantity > 0) {
+                // Add new service
+                return { ...prev, includedServices: [...prev.includedServices, { serviceId, quantity }] };
+            }
+            return prev;
+        });
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave({ ...formData, id: plan?.id || '' });
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={plan ? 'Editar Plano Mensal' : 'Novo Plano Mensal'}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <FormInput label="Nome do Plano" name="name" value={formData.name} onChange={handleChange} required />
+                <FormInput label="Preço Mensal (R$)" name="price" type="number" value={formData.price} onChange={handleChange} required />
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Serviços Inclusos</label>
+                    <div className="space-y-2 max-h-48 overflow-y-auto bg-brand-gray-dark p-2 rounded-md border border-brand-gray-light">
+                        {services.map(service => (
+                            <div key={service.id} className="flex items-center justify-between">
+                                <span className="text-gray-300">{service.name}</span>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={formData.includedServices.find(s => s.serviceId === service.id)?.quantity || 0}
+                                    onChange={e => handleServiceInclusionChange(service.id, parseInt(e.target.value, 10) || 0)}
+                                    className="w-16 bg-brand-gray-light text-white rounded-md p-1 text-center"
+                                />
+                            </div>
+                        ))}
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">Senha</label>
-                        <input type="password" value={pass} onChange={e => setPass(e.target.value)} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-3 focus:ring-brand-red focus:border-brand-red" />
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                    <button type="button" onClick={onClose} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                    <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Plano</button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+const ServiceForm = ({ service, onSave, onCancel }: { service: Service | null; onSave: (service: Omit<Service, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
+    const [formData, setFormData] = useState({
+        id: service?.id || '',
+        name: service?.name || '',
+        description: service?.description || '',
+        duration: service?.duration || 0,
+        price: service?.price || 0,
+        maintenanceIntervalMonths: service?.maintenanceIntervalMonths || undefined,
+    });
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value, type } = e.target;
+        setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) || 0 : value }));
+    };
+    
+    const handleMaintenanceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setFormData(prev => ({...prev, maintenanceIntervalMonths: value === '' ? undefined : parseInt(value, 10) || 0 }));
+    }
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave(formData);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <FormInput label="Nome do Serviço" name="name" value={formData.name} onChange={handleChange} required />
+            <FormInput label="Descrição" name="description" value={formData.description} onChange={handleChange} required />
+            <FormInput label="Duração (minutos)" name="duration" type="number" value={formData.duration} onChange={handleChange} required />
+            <FormInput label="Preço (R$)" name="price" type="number" step="0.01" value={formData.price} onChange={handleChange} required />
+            <FormInput label="Intervalo de Manutenção (meses)" name="maintenanceIntervalMonths" type="number" value={formData.maintenanceIntervalMonths ?? ''} onChange={handleMaintenanceChange} placeholder="Opcional" />
+            
+            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Serviço</button>
+            </div>
+        </form>
+    );
+};
+
+type LoginViewProps = {
+    onLogin: (login: string, password: string) => void;
+    error: string;
+};
+
+const LoginView: React.FC<LoginViewProps> = ({ onLogin, error }) => {
+    const [login, setLogin] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onLogin(login, password);
+    };
+
+    return (
+        <div className="bg-brand-gray-dark min-h-screen flex items-center justify-center p-4">
+            <div className="w-full max-w-sm">
+                <div className="flex justify-center mb-6">
+                    <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="CAR CLASS Logo" className="h-20 w-20 rounded-full" />
+                </div>
+                 <h1 className="text-3xl font-bold text-center text-white tracking-wider mb-2">CAR<span className="text-brand-red">CLASS</span></h1>
+                 <p className="text-center text-gray-400 mb-8">Acesso ao Painel Administrativo</p>
+                <form onSubmit={handleSubmit} className="bg-brand-gray-medium shadow-lg rounded-lg px-8 pt-6 pb-8 mb-4 border border-white/10">
+                    <div className="mb-4 relative">
+                        <UserCircleIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <FormInput 
+                            label="" 
+                            id="login"
+                            name="login"
+                            type="text"
+                            value={login}
+                            onChange={e => setLogin(e.target.value)}
+                            placeholder="Usuário"
+                            className="pl-10"
+                            required 
+                        />
                     </div>
-                    {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-                    <button type="submit" className="w-full bg-brand-red hover:bg-brand-red-hover text-white font-bold py-3 rounded-md transition-colors">Entrar</button>
+                    <div className="mb-6 relative">
+                         <LockClosedIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <FormInput 
+                            label="" 
+                            id="password"
+                            name="password"
+                            type="password"
+                            value={password}
+                            onChange={e => setPassword(e.target.value)}
+                            placeholder="Senha"
+                        />
+                    </div>
+                    {error && <p className="text-red-500 text-xs italic mb-4 text-center">{error}</p>}
+                    <div className="flex items-center justify-between">
+                        <button 
+                            className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:shadow-outline transition-colors" 
+                            type="submit"
+                        >
+                            Entrar
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
@@ -1813,13 +2471,12 @@ const App = () => {
     const [monthlyPlans, setMonthlyPlans] = useState<MonthlyPlan[]>(MOCK_PLANS);
     const [clientPlanUsages, setClientPlanUsages] = useState<ClientPlanUsage[]>(MOCK_CLIENT_PLAN_USAGE);
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-    const [toasts, setToasts] = useState<ToastProps[]>([]); // NEW STATE FOR TOASTS
     const [conversationLogs, setConversationLogs] = useState<ConversationLog[]>([]);
     const [isProcessingFile, setIsProcessingFile] = useState(false);
     
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [loginError, setLoginError] = useState('');
-    const [credentials, setCredentials] = useState({ login: 'owner', password: '123' });
+    const [credentials, setCredentials] = useState({ login: 'admin', password: '' });
 
     const [operatingHours, setOperatingHours] = useState<OperatingHours>({
          daysOpen: [1, 2, 3, 4, 5, 6], // Mon-Sat
@@ -1837,46 +2494,21 @@ const App = () => {
     
     const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: File }[]>([]);
     
-    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('disconnected');
-    const [qrCodeData, setQrCodeData] = useState<string | null>(null);
+    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>(
+        () => (localStorage.getItem('whatsappStatus') as 'connected' | null) || 'disconnected'
+    );
 
     useEffect(() => {
-        let intervalId: NodeJS.Timeout;
-
-        // Sempre faz polling para verificar status e QR code atualizado
-        intervalId = setInterval(async () => {
-            try {
-                const response = await fetch('/api/whatsapp/status');
-                if (response.ok) {
-                    const data = await response.json();
-                    setWhatsAppStatus(data.status);
-                    if (data.qrCode) {
-                        setQrCodeData(data.qrCode);
-                    }
-                }
-            } catch (error) {
-                console.error("Failed to poll WhatsApp status", error);
-            }
-        }, 3000); // Poll every 3 seconds
-
-        return () => clearInterval(intervalId);
-    }, []);
-
-    // NEW: Toast helper
-    const showToast = (message: string, type: ToastType = 'success') => {
-        const id = `toast-${Date.now()}`;
-        setToasts(prev => [...prev, { id, message, type, onClose: removeToast }]);
-    };
-
-    const removeToast = (id: string) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-    };
+        if (whatsAppStatus !== 'loading') { // prevent saving 'loading' state on reload
+            localStorage.setItem('whatsappStatus', whatsAppStatus);
+        }
+    }, [whatsAppStatus]);
 
 
     const addNotification = (message: string, type: 'success' | 'error' = 'success') => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
          setNotifications(prev => [newNotif, ...prev]);
-         showToast(message, type === 'error' ? 'error' : 'success'); // Trigger toast
+         // In a real app, you might have different visuals for success/error
     };
     
     const handleClientSave = (clientData: Omit<Client, 'id'> & { id?: string }) => {
@@ -1903,11 +2535,11 @@ const App = () => {
     const handleAppointmentSave = (appointmentData: Omit<Appointment, 'id'> & { id?: string }) => {
         if (appointmentData.id) {
              setAppointments(prev => prev.map(a => a.id === appointmentData.id ? { ...a, ...appointmentData } as Appointment : a));
-             addNotification(`Agendamento atualizado/alterado.`);
+             addNotification(`Agendamento atualizado.`);
         } else {
             const newAppointment: Appointment = { ...appointmentData, id: `a${Date.now()}`};
             setAppointments(prev => [...prev, newAppointment]);
-            addNotification(`Novo agendamento marcado.`);
+            addNotification(`Novo agendamento criado.`);
         }
         setIsAppointmentModalOpen(false);
         setEditingAppointment(null);
@@ -1916,7 +2548,7 @@ const App = () => {
     const handleAppointmentDelete = (id: string) => {
          if (window.confirm('Tem certeza que deseja excluir este agendamento?')) {
              setAppointments(prev => prev.filter(a => a.id !== id));
-             addNotification(`Agendamento cancelado.`);
+             addNotification(`Agendamento excluído.`);
          }
     };
 
@@ -1950,7 +2582,7 @@ const App = () => {
         }
         
         setIsProcessingFile(true);
-        addNotification(`Processando ${validFiles.length} arquivo(s)...`, 'info'); // Use info type
+        addNotification(`Processando ${validFiles.length} arquivo(s)...`);
     
         const allExtractedServices: Service[] = [];
         let filesProcessed = 0;
@@ -2010,27 +2642,14 @@ const App = () => {
     };
     
     const handleConnectWhatsApp = async () => {
+        setWhatsAppStatus('loading');
         try {
-            setWhatsAppStatus('loading');
-            const response = await fetch('/api/whatsapp/start', { method: 'POST' });
-            const data = await response.json();
-            
-            if (response.ok) {
-                if(data.status === 'connected') {
-                     setWhatsAppStatus('connected');
-                     addNotification('Já conectado ao WhatsApp!');
-                } else {
-                    setQrCodeData(data.qrCode);
-                    setWhatsAppStatus('loading');
-                }
-            } else {
-                addNotification("Erro ao iniciar conexão com o servidor.", "error");
-                setWhatsAppStatus('disconnected');
-            }
+            await fetch('/api/whatsapp/start', { method: 'POST' });
+            addNotification('Iniciando conexão com WhatsApp...');
         } catch (error) {
-            console.error("Error connecting:", error);
-            addNotification("Erro de rede ao conectar.", "error");
+            console.error(error);
             setWhatsAppStatus('disconnected');
+            addNotification('Erro ao iniciar conexão.', 'error');
         }
     };
 
@@ -2122,17 +2741,17 @@ const App = () => {
              paymentMethod: data.paymentMethod,
          };
          setAppointments(prev => [...prev, newAppointment]);
-         addNotification(`Novo agendamento marcado via WhatsApp.`);
+         addNotification(`Novo agendamento criado via WhatsApp.`);
      };
      
      const handleRescheduleAppointmentFromWhatsApp = (id: string, date: string, time: string) => {
          setAppointments(prev => prev.map(app => app.id === id ? { ...app, date, time } : app));
-         addNotification(`Agendamento alterado via WhatsApp.`);
+         addNotification(`Agendamento ${id} reagendado via WhatsApp.`);
      };
      
      const handleCancelAppointmentFromWhatsApp = (id: string) => {
          setAppointments(prev => prev.filter(app => app.id !== id));
-         addNotification(`Agendamento cancelado via WhatsApp.`);
+         addNotification(`Agendamento ${id} cancelado via WhatsApp.`);
      };
      
      const handleSaveSettings = (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], credentials: { login: string; password: string; } }) => {
@@ -2145,12 +2764,6 @@ const App = () => {
      
      const handleNewConversation = (log: ConversationLog) => {
          setConversationLogs(prev => [log, ...prev]);
-         const client = clients.find(c => c.id === log.clientId);
-         // addNotification(`Nova conversa salva no histórico.`);
-     };
-
-     const handleConversationStarted = () => {
-         addNotification("Nova conversa iniciada.", 'info');
      };
     
     const handleLogin = (loginAttempt: string, passwordAttempt: string) => {
@@ -2181,7 +2794,7 @@ const App = () => {
             case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
             case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
             case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView status={whatsAppStatus} onConnect={handleConnectWhatsApp} services={services} clients={clients} appointments={appointments} onClientAdded={handleAddClientFromWhatsApp} onClientUpdated={handleUpdateClientFromWhatsApp} onAppointmentFinalized={handleFinalizeAppointmentFromWhatsApp} onAppointmentRescheduled={handleRescheduleAppointmentFromWhatsApp} onAppointmentCancelled={handleCancelAppointmentFromWhatsApp} operatingHours={operatingHours} onConversationFinished={handleNewConversation} catalogFiles={catalogFiles} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} conversationLogs={conversationLogs} qrCodeData={qrCodeData} onConversationStarted={handleConversationStarted} />;
+            case 'whatsapp': return <WhatsAppView status={whatsAppStatus} onConnect={handleConnectWhatsApp} onStatusUpdate={setWhatsAppStatus} services={services} clients={clients} appointments={appointments} onClientAdded={handleAddClientFromWhatsApp} onClientUpdated={handleUpdateClientFromWhatsApp} onAppointmentFinalized={handleFinalizeAppointmentFromWhatsApp} onAppointmentRescheduled={handleRescheduleAppointmentFromWhatsApp} onAppointmentCancelled={handleCancelAppointmentFromWhatsApp} operatingHours={operatingHours} onConversationFinished={handleNewConversation} catalogFiles={catalogFiles} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} conversationLogs={conversationLogs} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
             case 'settings': return <SettingsView operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} credentials={credentials} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
@@ -2193,17 +2806,7 @@ const App = () => {
     }
 
     return (
-        <div className="bg-brand-gray-dark min-h-screen text-gray-200 font-sans flex flex-col md:flex-row relative">
-             {/* TOAST CONTAINER */}
-             <div className="fixed top-4 right-4 z-[9999] flex flex-col items-end pointer-events-none">
-                 {/* Wrap toasts in a pointer-events-auto container so clicks work */}
-                 <div className="pointer-events-auto">
-                    {toasts.map(toast => (
-                        <Toast key={toast.id} {...toast} />
-                    ))}
-                 </div>
-             </div>
-
+        <div className="bg-brand-gray-dark min-h-screen text-gray-200 font-sans flex flex-col md:flex-row">
              <main className="flex-1 flex flex-col h-screen">
                  <header className="bg-brand-gray-medium p-3 flex justify-between items-center border-b border-white/10">
                       <div className="flex items-center gap-3">
