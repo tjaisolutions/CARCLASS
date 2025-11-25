@@ -253,87 +253,126 @@ const normalizeText = (text = '') => text ? text.toLowerCase().normalize("NFD").
 
 const sendMessageWTyping = async (jid, text) => {
     if (!sock) return;
-    await sock.presenceSubscribe(jid);
-    await sock.sendPresenceUpdate('composing', jid);
-    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-    await sock.sendPresenceUpdate('paused', jid);
-    await sock.sendMessage(jid, { text });
+    try {
+        await sock.presenceSubscribe(jid);
+        await sock.sendPresenceUpdate('composing', jid);
+        await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
+        await sock.sendPresenceUpdate('paused', jid);
+        await sock.sendMessage(jid, { text });
+    } catch (err) {
+        console.error(`[WhatsApp] Erro ao enviar mensagem para ${jid}:`, err);
+    }
 };
 
 const startWhatsApp = async () => {
-    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
-    const { version } = await fetchLatestBaileysVersion();
-    
-    console.log(`[WhatsApp] Usando Baileys v${version.join('.')}`);
-
-    sock = makeWASocket({
-        version,
-        auth: state,
-        logger: pino({ level: 'silent' }),
-        browser: ['CARCLASS', 'Chrome', '1.0.0']
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+        const { version } = await fetchLatestBaileysVersion();
         
-        if(qr) {
-            waConnectionStatus = { isConnected: false, message: 'Escaneie o QR Code para conectar', qrCode: await qrcode.toDataURL(qr) };
-        }
-        
-        if(connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            waConnectionStatus = { isConnected: false, message: 'Desconectado. Tentando reconectar...', qrCode: null };
-            console.log('[WhatsApp] Conexão fechada, motivo:', lastDisconnect.error, ', reconectando:', shouldReconnect);
+        console.log(`[WhatsApp] Usando Baileys v${version.join('.')}`);
+
+        sock = makeWASocket({
+            version,
+            auth: state,
+            logger: pino({ level: 'silent' }),
+            browser: ['CARCLASS', 'Chrome', '1.0.0'],
+            printQRInTerminal: false,
+            syncFullHistory: true, // Request full history
+        });
+
+        sock.ev.on('creds.update', saveCreds);
+
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
             
-            if(shouldReconnect) {
-                // Add delay to prevent infinite loops in case of immediate disconnection
-                setTimeout(startWhatsApp, 3000);
-            } else {
-                 // Logged out, clear session
-                if (fs.existsSync(SESSION_DIR)) {
-                    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-                }
-                waConnectionStatus.message = 'Desconectado. Por favor, escaneie um novo QR Code.';
-                setTimeout(startWhatsApp, 1000); // restart to generate new QR
+            if(qr) {
+                waConnectionStatus = { isConnected: false, message: 'Escaneie o QR Code para conectar', qrCode: await qrcode.toDataURL(qr) };
+                waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
             }
-        } else if(connection === 'open') {
-            waConnectionStatus = { isConnected: true, message: 'Conectado com sucesso!', qrCode: null };
-            console.log('[WhatsApp] Conexão aberta.');
+            
+            if(connection === 'close') {
+                const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+                waConnectionStatus = { isConnected: false, message: 'Desconectado. Tentando reconectar...', qrCode: null };
+                console.log('[WhatsApp] Conexão fechada, motivo:', lastDisconnect.error, ', reconectando:', shouldReconnect);
+                waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
+                
+                if(shouldReconnect) {
+                    setTimeout(startWhatsApp, 3000);
+                } else {
+                    // Logged out, clear session
+                    if (fs.existsSync(SESSION_DIR)) {
+                        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+                    }
+                    waConnectionStatus.message = 'Desconectado. Por favor, escaneie um novo QR Code.';
+                    setTimeout(startWhatsApp, 1000); 
+                }
+            } else if(connection === 'open') {
+                waConnectionStatus = { isConnected: true, message: 'Conectado com sucesso!', qrCode: null };
+                console.log('[WhatsApp] Conexão aberta.');
+                waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
+            }
+        });
+
+        sock.ev.on('messages.upsert', async (m) => {
+            // Process ALL messages in the upsert event (fixes history sync issues)
+            for (const msg of m.messages) {
+                if (!msg.message) continue;
+
+                const senderJid = msg.key.remoteJid;
+                // Ignore status updates
+                if (senderJid === 'status@broadcast') continue;
+
+                const senderName = msg.pushName || senderJid.split('@')[0];
+                const messageBody = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+                
+                // --- SAVE MESSAGE ---
+                // We want to save both incoming and outgoing (fromMe) messages so the chat is complete.
+                if (!aistudio.wa_chats[senderJid]) {
+                    aistudio.wa_chats[senderJid] = [];
+                }
+
+                // Check for duplicates to avoid adding the same message twice (upserts can happen multiple times)
+                // We use timestamp and id as unique identifiers.
+                const alreadyExists = aistudio.wa_chats[senderJid].some(storedMsg => 
+                    storedMsg.id.remote === senderJid && 
+                    storedMsg.id.fromMe === msg.key.fromMe &&
+                    (storedMsg.id.id === msg.key.id || Math.abs(storedMsg.timestamp - (msg.messageTimestamp || Date.now()/1000)) < 2)
+                );
+
+                if (!alreadyExists) {
+                     const messageToStore = {
+                        id: { fromMe: msg.key.fromMe, remote: senderJid, id: msg.key.id },
+                        body: messageBody,
+                        timestamp: msg.messageTimestamp || Date.now() / 1000,
+                        isBot: false, 
+                    };
+                    aistudio.wa_chats[senderJid].push(messageToStore);
+                    // Notify frontend
+                    waEvents.emit('event', { type: 'message', data: messageToStore, senderName });
+                    
+                    // Only save DB periodically or on important events could be better, but for MVP saving here is safer.
+                    saveDb(); 
+                }
+
+                // --- CHATBOT LOGIC ---
+                // Only run bot logic for incoming messages that are NOT from the bot itself
+                if (!msg.key.fromMe && messageBody) {
+                    console.log(`[WhatsApp] Mensagem de ${senderName}: "${messageBody}"`);
+                    await handleBotLogic(senderJid, messageBody, senderName);
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('[WhatsApp] Erro fatal ao iniciar:', error);
+        // Force cleanup and retry if session is corrupted
+        if (fs.existsSync(SESSION_DIR)) {
+            try {
+                fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+            } catch(e) {}
         }
-
-        waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
-    });
-
-    sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-
-        const senderJid = msg.key.remoteJid;
-        const senderName = msg.pushName || senderJid.split('@')[0];
-        const messageBody = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-        
-        console.log(`[WhatsApp] Mensagem de ${senderName} (${senderJid}): "${messageBody}"`);
-        
-        // --- SAVE MESSAGE & NOTIFY FRONTEND ---
-         if (!aistudio.wa_chats[senderJid]) {
-            aistudio.wa_chats[senderJid] = [];
-        }
-        const messageToStore = {
-            id: { fromMe: false, remote: senderJid },
-            body: messageBody,
-            timestamp: msg.messageTimestamp,
-            isBot: false,
-        };
-        aistudio.wa_chats[senderJid].push(messageToStore);
-        saveDb();
-        
-         waEvents.emit('event', { type: 'message', data: messageToStore, senderName });
-         
-         // --- CHATBOT LOGIC ---
-         await handleBotLogic(senderJid, messageBody, senderName);
-    });
+        setTimeout(startWhatsApp, 5000);
+    }
 };
 
 // --- WHATSAPP API ROUTES ---
@@ -529,10 +568,9 @@ const handleBotLogic = async (senderJid, message, senderName) => {
 
     const sendBotMessage = async (text) => {
         await sendMessageWTyping(senderJid, text);
-        if (!aistudio.wa_chats[senderJid]) aistudio.wa_chats[senderJid] = [];
-        const messageToStore = { id: { fromMe: true, remote: senderJid }, body: text, timestamp: Date.now() / 1000, isBot: true };
-        aistudio.wa_chats[senderJid].push(messageToStore);
-        waEvents.emit('event', { type: 'message', data: messageToStore, senderName });
+        // We do NOT save to DB here because sendMessage trigger upsert event automatically for 'fromMe' messages,
+        // and our upsert handler handles saving. This prevents duplicates.
+        // However, we emit to frontend for immediate feedback if needed, but upsert handles that too.
     };
 
     const resetSession = () => {
@@ -892,23 +930,24 @@ const isViteDev = process.env.npm_lifecycle_script?.includes('vite');
 
 if (isViteDev) {
     // DEVELOPMENT: Running as Vite middleware.
-    // The `app` is already configured with API routes.
-    // Vite handles static serving and the server itself.
-    // We just need to start the WhatsApp client.
     console.log('[Vite Dev] Anexando servidor Express e iniciando WhatsApp...');
     startWhatsApp().catch(err => console.error("[Vite Dev Startup] Erro fatal ao iniciar o WhatsApp:", err));
 } else {
     // PRODUCTION: Running as a standalone Node.js server.
     // Serve the built frontend files.
     app.use(express.static(DIST_DIR));
-    app.get('*', (req, res) => {
+    
+    // Explicitly handle 404s for common asset types to prevent index.html fallback errors (MIME type issues)
+    app.get('*', (req, res, next) => {
+        if (req.url.match(/\.(css|js|png|jpg|jpeg|gif|ico|json|map)$/)) {
+            return res.status(404).end();
+        }
         res.sendFile(path.join(DIST_DIR, 'index.html'));
     });
 
     // Start listening and then start WhatsApp.
     app.listen(port, () => {
         console.log(`[Server] Servidor HTTP rodando na porta ${port}`);
-        console.log(`[Server] Acessível em http://localhost:${port}`);
         startWhatsApp().catch(err => console.error("[Production Startup] Erro fatal ao iniciar o WhatsApp:", err));
     });
 }
