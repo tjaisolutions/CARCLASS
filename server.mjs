@@ -155,8 +155,10 @@ loadDb();
 
 
 // --- MIDDLEWARE ---
+// @ts-ignore
 app.use(express.json());
 // Serve static files from the uploads directory
+// @ts-ignore
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 
@@ -175,6 +177,7 @@ apiRouter.post('/data', (req, res) => {
     res.status(200).json({ message: 'Dados salvos com sucesso!' });
 });
 
+// @ts-ignore
 apiRouter.post('/upload-catalog', upload.array('catalogs'), (req, res) => {
     if (!req.files) {
         return res.status(400).send('Nenhum arquivo enviado.');
@@ -388,6 +391,7 @@ apiRouter.get('/whatsapp/events', (req, res) => {
     };
     waEvents.once('event', handler);
     // Clean up listener if client disconnects
+    // @ts-ignore
     req.on('close', () => {
         waEvents.removeListener('event', handler);
     });
@@ -449,17 +453,20 @@ app.use('/api', apiRouter);
 // --- CHATBOT IMPLEMENTATION ---
 
 // Helper functions for the bot
+// Using Brazil time for accurate scheduling
+const getBrazilDate = () => new Date(new Date().toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
+
 const normalizeCPF = (cpf) => cpf.replace(/[^\d]/g, '');
 const findClientByCpf = (cpf) => aistudio.clients.find(c => normalizeCPF(c.cpf) === normalizeCPF(cpf));
 const getClientUpcomingAppointment = (clientId) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getBrazilDate().toISOString().split('T')[0];
     return aistudio.appointments
         .filter(a => a.clientId === clientId && a.date >= today && a.status !== 'Finalizado')
         .sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time))[0];
 };
 
 const parseDateTime = (text) => {
-    const now = new Date();
+    const now = getBrazilDate();
     const normalizedText = normalizeText(text.replace(/ as /g, ' '));
 
     const monthMap = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11, janeiro: 0, fevereiro: 1, marco: 2, abril: 3, maio: 4, junho: 5, julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11 };
@@ -488,7 +495,7 @@ const parseDateTime = (text) => {
         month = now.getDate() > day ? now.getMonth() + 1 : now.getMonth();
     } else if (weekdayMatch) {
         const targetWeekday = weekdayMap[weekdayMatch[1]];
-        const tempDate = new Date();
+        const tempDate = getBrazilDate();
         tempDate.setDate(tempDate.getDate() + (targetWeekday + 7 - tempDate.getDay()) % 7);
         day = tempDate.getDate();
         month = tempDate.getMonth();
@@ -516,12 +523,27 @@ const parseDateTime = (text) => {
 const isSlotAvailable = (dateString, timeString) => {
     const { operatingHours, appointments } = aistudio;
     const targetDate = new Date(`${dateString}T00:00:00`); 
-    const dayOfWeek = targetDate.getDay();
+    const dayOfWeek = targetDate.getDay(); // Sun=0, Sat=6
 
-    // Note: JS Date getDay() is Sun=0, Sat=6. Our operatingHours is the same.
+    // 1. Check if day is open
     if (!operatingHours.daysOpen.includes(dayOfWeek)) return false;
+    // 2. Check if time is in list
     if (!operatingHours.availableTimes.includes(timeString)) return false;
 
+    // 3. Check if time has passed (for today) using Brazil time
+    const now = getBrazilDate();
+    const todayString = now.toISOString().split('T')[0];
+    
+    if (dateString === todayString) {
+        const [h, m] = timeString.split(':').map(Number);
+        const slotDate = getBrazilDate();
+        slotDate.setHours(h, m, 0, 0);
+        
+        // If the slot time is before "now", it's not available
+        if (slotDate < now) return false;
+    }
+
+    // 4. Check if booked
     const isBooked = appointments.some(app => app.date === dateString && app.time === timeString && app.status !== 'Finalizado');
     return !isBooked;
 };
@@ -531,20 +553,33 @@ const getAvailableSlots = () => {
     let availableSlotsMessage = "Estes são os nossos próximos dias e horários disponíveis:\n\n";
     let daysFound = 0;
     const distinctDays = new Set();
+    const now = getBrazilDate();
+    const todayString = now.toISOString().split('T')[0];
 
     for (let i = 0; i < 14 && daysFound < 5; i++) {
-        const day = new Date();
+        const day = getBrazilDate();
         day.setDate(day.getDate() + i);
         const dayOfWeek = day.getDay();
 
         if (operatingHours.daysOpen.includes(dayOfWeek)) {
             const dateString = day.toISOString().split('T')[0];
-            
             if (distinctDays.has(dateString)) continue;
 
             const todaysAppointments = appointments.filter(a => a.date === dateString && a.status !== 'Finalizado');
             const bookedTimes = todaysAppointments.map(a => a.time);
-            const availableForDay = operatingHours.availableTimes.filter(t => !bookedTimes.includes(t));
+            
+            // Filter base available times
+            let availableForDay = operatingHours.availableTimes.filter(t => !bookedTimes.includes(t));
+
+            // Extra filter for TODAY: remove passed hours
+            if (dateString === todayString) {
+                availableForDay = availableForDay.filter(t => {
+                    const [h, m] = t.split(':').map(Number);
+                    const slotDate = getBrazilDate();
+                    slotDate.setHours(h, m, 0, 0);
+                    return slotDate > now;
+                });
+            }
 
             if (availableForDay.length > 0) {
                 const dayLabel = day.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -554,7 +589,7 @@ const getAvailableSlots = () => {
             }
         }
     }
-    return daysFound > 0 ? availableSlotsMessage : "Desculpe, não temos horários disponíveis nos próximos 14 dias. Por favor, entre em contato para verificar a disponibilidade.";
+    return daysFound > 0 ? availableSlotsMessage : "Desculpe, não temos horários disponíveis nos próximos dias. Por favor, entre em contato para verificar a disponibilidade.";
 };
 
 const handleBotLogic = async (senderJid, message, senderName) => {
@@ -568,9 +603,6 @@ const handleBotLogic = async (senderJid, message, senderName) => {
 
     const sendBotMessage = async (text) => {
         await sendMessageWTyping(senderJid, text);
-        // We do NOT save to DB here because sendMessage trigger upsert event automatically for 'fromMe' messages,
-        // and our upsert handler handles saving. This prevents duplicates.
-        // However, we emit to frontend for immediate feedback if needed, but upsert handles that too.
     };
 
     const resetSession = () => {
@@ -587,7 +619,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             } 
         });
     }
-    
+
     const showSummaryAndConfirm = async () => {
         const { serviceId, carId, date, time, protections } = session;
         const service = serviceId === 'on-site' ? { name: 'A ser escolhido no local' } : aistudio.services.find(s => s.id === serviceId);
@@ -607,6 +639,40 @@ const handleBotLogic = async (senderJid, message, senderName) => {
         summary += "\nEstá tudo correto? Responda *Confirmar* ou *Alterar*.";
         await sendBotMessage(summary);
         session.state = 'AWAITING_FINAL_CONFIRMATION';
+    };
+
+    const handlePlanCheck = async () => {
+        const client = aistudio.clients.find(c => c.id === session.clientId);
+        if (client.monthlyPlanId) {
+            // Client has a plan
+            const plan = aistudio.monthlyPlans.find(p => p.id === client.monthlyPlanId);
+            const today = getBrazilDate();
+            const currentCycleStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+            
+            // Get usage
+            let usage = aistudio.clientPlanUsages.find(u => u.clientId === client.id && u.cycleStartDate === currentCycleStart);
+            
+            if (plan) {
+                let statusMsg = `Você é assinante do plano *${plan.name}*.\n`;
+                const details = plan.includedServices.map(item => {
+                    const serviceName = aistudio.services.find(s => s.id === item.serviceId)?.name || 'Serviço';
+                    const used = usage && usage.usedServices[item.serviceId] ? usage.usedServices[item.serviceId] : 0;
+                    const remaining = Math.max(0, item.quantity - used);
+                    return `- ${serviceName}: ${remaining} restantes de ${item.quantity}`;
+                }).join('\n');
+                statusMsg += details;
+                await sendBotMessage(statusMsg);
+            }
+            
+            // Skip plan pitch, go to service selection
+            await sendBotMessage("Deseja ver a lista completa de serviços ou prefere escolher o serviço no local?");
+            session.state = 'CHOOSE_SERVICE_OPTION';
+
+        } else {
+            // Client does NOT have a plan
+            await sendBotMessage("Verifiquei que você ainda não possui um plano mensal conosco. Gostaria de *conhecer* nossos planos e economizar, ou prefere *prosseguir* com o agendamento avulso?");
+            session.state = 'AWAITING_PLAN_INTEREST_RESPONSE';
+        }
     };
 
     switch (session.state) {
@@ -640,8 +706,8 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                     await sendBotMessage(`Verifiquei aqui e você já tem um agendamento para ${appointmentDate}. Você deseja *alterar*, *cancelar* este agendamento ou *prosseguir* com um novo?`);
                     session.state = 'AWAITING_EXISTING_APPOINTMENT_ACTION';
                 } else {
-                    await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
-                    session.state = 'CHOOSE_SERVICE_OPTION';
+                    // Check for plans before going to service selection
+                    await handlePlanCheck();
                 }
             } else {
                 session.cpfRetryCount++;
@@ -667,8 +733,8 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 await sendBotMessage("Ok, vamos alterar. " + getAvailableSlots());
                 session.state = 'AWAITING_DATETIME_FOR_CHANGE';
             } else if (normalizedMessage.includes('prosseguir')) {
-                await sendBotMessage("Certo! Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
-                session.state = 'CHOOSE_SERVICE_OPTION';
+                 // Check for plans before going to service selection
+                 await handlePlanCheck();
             } else {
                 await sendBotMessage("Por favor, responda com *alterar*, *cancelar* ou *prosseguir*.");
             }
@@ -692,8 +758,56 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 await sendBotMessage("Cadastro concluído com sucesso!");
                 notifyFrontendOfDbChange();
             }
-            await sendBotMessage("Você deseja ver a lista de serviços ou prefere escolher o serviço no local?");
-            session.state = 'CHOOSE_SERVICE_OPTION';
+            // Check plans for new or existing client
+            await handlePlanCheck();
+            break;
+
+        case 'AWAITING_PLAN_INTEREST_RESPONSE':
+            if (normalizedMessage.includes('conhecer') || normalizedMessage.includes('sim')) {
+                const plans = aistudio.monthlyPlans;
+                if (plans.length > 0) {
+                    let plansMsg = "Estes são os nossos planos mensais:\n\n";
+                    plans.forEach((p, idx) => {
+                        plansMsg += `*${idx + 1}. ${p.name}* - R$ ${p.price.toFixed(2)}\n`;
+                    });
+                    plansMsg += "\nDigite o número do plano que deseja aderir, ou digite *prosseguir* para continuar sem plano.";
+                    await sendBotMessage(plansMsg);
+                    session.state = 'AWAITING_PLAN_SELECTION';
+                } else {
+                    await sendBotMessage("No momento não temos planos cadastrados. Vamos prosseguir com o agendamento avulso.");
+                    await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+                    session.state = 'CHOOSE_SERVICE_OPTION';
+                }
+            } else {
+                await sendBotMessage("Sem problemas! Vamos prosseguir com o agendamento avulso.");
+                await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+                session.state = 'CHOOSE_SERVICE_OPTION';
+            }
+            break;
+
+        case 'AWAITING_PLAN_SELECTION':
+            if (normalizedMessage.includes('prosseguir')) {
+                await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+                session.state = 'CHOOSE_SERVICE_OPTION';
+            } else {
+                const choice = parseInt(message, 10) - 1;
+                if (aistudio.monthlyPlans[choice]) {
+                    const selectedPlan = aistudio.monthlyPlans[choice];
+                    const clientIndex = aistudio.clients.findIndex(c => c.id === session.clientId);
+                    if (clientIndex !== -1) {
+                        aistudio.clients[clientIndex].monthlyPlanId = selectedPlan.id;
+                        notifyFrontendOfDbChange();
+                        await sendBotMessage(`Parabéns! O plano *${selectedPlan.name}* foi vinculado ao seu cadastro.`);
+                        await sendBotMessage("Agora, deseja ver a lista de serviços ou prefere escolher o serviço no local?");
+                        session.state = 'CHOOSE_SERVICE_OPTION';
+                    } else {
+                        await sendBotMessage("Houve um erro ao vincular o plano. Vamos prosseguir com o agendamento.");
+                        session.state = 'CHOOSE_SERVICE_OPTION';
+                    }
+                } else {
+                    await sendBotMessage("Opção inválida. Digite o número do plano ou *prosseguir*.");
+                }
+            }
             break;
 
         case 'CHOOSE_SERVICE_OPTION':
@@ -858,9 +972,9 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             const model = parts.join(' ');
             const newCar = { id: `car${Date.now()}`, model, plate, protections: session.protections ? [session.protections] : [] };
             
-            const clientIndex = aistudio.clients.findIndex(c => c.id === session.clientId);
-            if (clientIndex !== -1) {
-                aistudio.clients[clientIndex].cars.push(newCar);
+            const clientIndexNewCar = aistudio.clients.findIndex(c => c.id === session.clientId);
+            if (clientIndexNewCar !== -1) {
+                aistudio.clients[clientIndexNewCar].cars.push(newCar);
                 session.carId = newCar.id;
                 notifyFrontendOfDbChange();
                 await sendBotMessage(`Veículo *${model} (${plate})* cadastrado!`);
@@ -935,6 +1049,7 @@ if (isViteDev) {
 } else {
     // PRODUCTION: Running as a standalone Node.js server.
     // Serve the built frontend files.
+    // @ts-ignore
     app.use(express.static(DIST_DIR));
     
     // Explicitly handle 404s for common asset types to prevent index.html fallback errors (MIME type issues)
