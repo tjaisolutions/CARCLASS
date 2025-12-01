@@ -40,7 +40,6 @@ const LockClosedIcon = ({ className }: { className?: string }) => <svg xmlns="ht
 const ArrowRightOnRectangleIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>;
 const EyeIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>;
 const UserPlusIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" /></svg>;
-const MegaphoneIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.996.913 2.164 1.694 2.835a2 2 0 0 0 2.65-.01l.175-.16a2 2 0 0 0 .416-2.193l-.422-1.277a1.5 1.5 0 0 0-.272-.519m-3.823 1.324a1.5 1.5 0 0 0-1.066.447l-.992.992a.5.5 0 0 1-.62.072 2.001 2.001 0 0 1-.781-3.328l.992-.992a1.5 1.5 0 0 0 .447-1.066m2.025 3.879A1.5 1.5 0 0 1 10.5 15m.84-1.84a1.5 1.5 0 0 0 1.532-1.532 1.5 1.5 0 0 1 .447-1.066l.992-.992a.5.5 0 0 1 .62-.072 2.001 2.001 0 0 1 .781 3.328l-.992.992a1.5 1.5 0 0 0-.447 1.066" /></svg>;
 
 
 // --- Helper Functions ---
@@ -171,7 +170,6 @@ const CustomSelect: React.FC<CustomSelectProps> = ({ options, value, onChange })
 
 
 const AgendaView = ({ appointments, clients, services, onStartService, onFinishService, onEditAppointment, onDeleteAppointment }: { appointments: Appointment[]; clients: Client[]; services: Service[]; onStartService: (id: string) => void; onFinishService: (id: string) => void; onEditAppointment: (appointment: Appointment) => void; onDeleteAppointment: (id: string) => void; }) => {
-    // ... (Existing AgendaView logic remains same)
     const [activeAgendaTab, setActiveAgendaTab] = useState<'today' | 'general' | 'history'>('today');
     const [sortBy, setSortBy] = useState<AgendaSortBy>('default');
     const getTodayDateString = () => new Date().toISOString().split('T')[0];
@@ -347,13 +345,208 @@ const AgendaView = ({ appointments, clients, services, onStartService, onFinishS
     );
 };
 
-// ... (ClientCard, ClientsView, ServiceCard, ServicesView, ChatMessage, WhatsAppConnectionStatus remain same)
-// ...
+type ClientCardProps = { client: Client; onEdit: (client: Client) => void; onDelete: (id: string) => void; plan: MonthlyPlan | undefined; usage: ClientPlanUsage | undefined; services: Service[] };
+const ClientCard: React.FC<ClientCardProps> = ({ client, onEdit, onDelete, plan, usage, services }) => {
+    const [isOpen, setIsOpen] = useState(false);
 
+    return (
+        <div className="bg-brand-gray-medium rounded-lg overflow-hidden border border-white/10">
+            <button onClick={() => setIsOpen(!isOpen)} className="w-full p-4 text-left flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                    <div className="relative">
+                        <UserCircleIcon className="w-8 h-8 text-brand-red" />
+                        {plan && <div className="absolute -bottom-1 -right-1 bg-yellow-500 rounded-full p-0.5"><StarIcon className="w-3 h-3 text-white"/></div>}
+                    </div>
+                    <div>
+                        <p className="font-bold text-white text-lg">{client.name}</p>
+                        <p className="text-sm text-gray-400">{client.cpf}</p>
+                        <p className="text-sm text-gray-400 flex items-center gap-1.5 mt-1"><PhoneIcon className="w-4 h-4"/>{client.whatsapp}</p>
+                    </div>
+                </div>
+                <ChevronDownIcon className={`h-6 w-6 text-gray-300 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <div className="px-4 pb-4 bg-black/20 border-t border-white/10">
+                    {plan && usage && (
+                        <div className="mt-3 mb-2">
+                             <h3 className="text-brand-red font-semibold mb-2">Plano Mensal: {plan.name}</h3>
+                             <div className="bg-brand-gray-light p-3 rounded-md space-y-2">
+                                {plan.includedServices.map(item => {
+                                    const service = services.find(s => s.id === item.serviceId);
+                                    if (!service) return null;
+                                    const used = usage.usedServices[item.serviceId] || 0;
+                                    return (
+                                        <div key={item.serviceId} className="flex justify-between items-center text-sm">
+                                            <span className="text-gray-300">{service.name}</span>
+                                            <span className="font-semibold text-white">{used} / {item.quantity} usados</span>
+                                        </div>
+                                    )
+                                })}
+                             </div>
+                        </div>
+                    )}
+                    <h3 className="text-brand-red font-semibold mt-3 mb-2">Veículos:</h3>
+                    <div className="space-y-3">
+                        {client.cars.map(car => (
+                            <div key={car.id} className="bg-brand-gray-light p-3 rounded-md">
+                                <p className="font-semibold text-white flex items-center gap-2"><CarIcon className="w-5 h-5"/>{car.model} - <span className="font-mono text-gray-300">{car.plate}</span></p>
+                                <div className="mt-2 flex flex-wrap gap-2 items-center">
+                                    <ShieldCheckIcon className="w-5 h-5 text-green-400" />
+                                    {car.protections.map(p => <span key={p} className="text-green-300 text-xs font-medium">{p}</span>)}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                     <div className="flex justify-end gap-2 mt-4 border-t border-white/10 pt-3">
+                        <button onClick={() => onEdit(client)} className="flex items-center gap-1 text-sm bg-yellow-600/20 text-yellow-400 px-3 py-1 rounded-md hover:bg-yellow-600/40 transition"><PencilSquareIcon className="w-4 h-4" /> Editar</button>
+                        <button onClick={() => onDelete(client.id)} className="flex items-center gap-1 text-sm bg-red-600/20 text-red-400 px-3 py-1 rounded-md hover:bg-red-600/40 transition"><TrashIcon className="w-4 h-4" /> Excluir</button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const ClientsView = ({ clients, onAdd, onEdit, onDelete, monthlyPlans, clientPlanUsages, services }: { clients: Client[]; onAdd: () => void; onEdit: (client: Client) => void; onDelete: (id: string) => void; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; services: Service[]; }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredClients = useMemo(() => {
+        if (!searchTerm) return clients;
+        const normalizedSearch = normalizeText(searchTerm);
+        return clients.filter(client => 
+            normalizeText(client.name).includes(normalizedSearch) ||
+            client.cpf.replace(/[.-]/g, '').includes(normalizedSearch)
+        );
+    }, [clients, searchTerm]);
+
+    const getFirstDayOfCurrentMonth = () => {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    };
+    
+    return (
+    <div className="p-4">
+        <div className="mb-4">
+             <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"><PlusIcon className="w-5 h-5" />Adicionar Cliente</button>
+        </div>
+        <div className="mb-4">
+            <FormInput 
+                label="Buscar Cliente" 
+                placeholder="Digite o nome ou CPF..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+            />
+        </div>
+        <div className="space-y-4">
+            {filteredClients.length > 0 ? (
+                filteredClients.map(client => {
+                    const plan = monthlyPlans.find(p => p.id === client.monthlyPlanId);
+                    const currentCycleStart = getFirstDayOfCurrentMonth();
+                    const usage = clientPlanUsages.find(u => u.clientId === client.id && u.cycleStartDate === currentCycleStart);
+                    return <ClientCard key={client.id} client={client} onEdit={onEdit} onDelete={onDelete} plan={plan} usage={usage} services={services} />
+                })
+            ) : (
+                <div className="text-center py-10">
+                    <UsersIcon className="w-16 h-16 mx-auto text-gray-500 mb-4" />
+                    <h3 className="text-xl font-bold text-white">Nenhum cliente encontrado</h3>
+                    <p className="text-gray-400 mt-2">Tente ajustar sua busca ou adicione um novo cliente.</p>
+                </div>
+            )}
+        </div>
+    </div>
+)};
+
+type ServiceCardProps = { 
+    service: Service; 
+    onEdit: (service: Service) => void;
+    onDelete: (id: string) => void;
+};
+const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEdit, onDelete }) => (
+    <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+        <div className="flex justify-between items-start">
+            <div className="flex-1">
+                <h3 className="text-lg font-bold text-white pr-2">{service.name}</h3>
+                <p className="text-gray-400 text-sm mt-1">{service.description}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+                <button onClick={() => onEdit(service)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
+                <button onClick={() => onDelete(service.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>
+            </div>
+        </div>
+        <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mt-3 pt-3 border-t border-white/10 text-gray-300">
+            <span className="flex items-center gap-1.5"><ClockIcon className="w-4 h-4 text-brand-red"/> {service.duration} min</span>
+            <span className="flex items-center gap-1.5"><CurrencyDollarIcon className="w-4 h-4 text-brand-red"/> R$ {service.price.toFixed(2)}</span>
+            {service.maintenanceIntervalMonths && (
+                <span className="flex items-center gap-1.5"><ArrowPathIcon className="w-4 h-4 text-brand-red"/> Manutenção: {service.maintenanceIntervalMonths} meses</span>
+            )}
+        </div>
+    </div>
+);
+
+const ServicesView = ({ services, onAdd, onEdit, onDelete }: { services: Service[]; onAdd: () => void; onEdit: (service: Service) => void; onDelete: (id: string) => void; }) => (
+    <div className="p-4">
+        <div className="mb-4">
+             <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"><PlusIcon className="w-5 h-5" />Adicionar Serviço</button>
+        </div>
+        <p className="text-center text-gray-400 text-sm mb-4">Serviços também podem ser adicionados via upload de catálogo na aba "Ajustes".</p>
+        <div className="space-y-4">
+            {services.length > 0 ? (
+                services.map(service => (
+                    <ServiceCard key={service.id} service={service} onEdit={onEdit} onDelete={onDelete} />
+                ))
+            ) : (
+                <div className="text-center py-10">
+                    <WrenchScrewdriverIcon className="w-16 h-16 mx-auto text-gray-500 mb-4" />
+                    <h3 className="text-xl font-bold text-white">Nenhum serviço cadastrado</h3>
+                    <p className="text-gray-400 mt-2">Adicione um novo serviço para começar a agendar.</p>
+                </div>
+            )}
+        </div>
+    </div>
+);
+
+
+type ChatMessageProps = { sender: 'user' | 'bot' | 'agent'; content: React.ReactNode; operatorName?: string; };
+const ChatMessage: React.FC<ChatMessageProps> = ({ sender, content, operatorName }) => {
+    const isUser = sender === 'user';
+    
+    return (
+    <div className={`flex items-end gap-2 ${isUser ? 'justify-start' : 'justify-end'}`}>
+        {sender === 'agent' && <div className="w-8 h-8 bg-blue-600 rounded-full flex-shrink-0 mb-8 flex items-center justify-center font-bold text-white">{operatorName?.charAt(0).toUpperCase()}</div>}
+        {sender === 'bot' && <div className="w-8 h-8 bg-brand-red rounded-full flex-shrink-0 mb-8 flex items-center justify-center text-white font-bold text-lg">*</div>}
+        
+        <div className={`max-w-xs md:max-w-md p-3 rounded-2xl ${isUser ? 'bg-brand-gray-light text-gray-200 rounded-bl-none' : (sender === 'bot' ? 'bg-brand-red/80 text-white rounded-br-none' : 'bg-blue-700 text-white rounded-br-none')}`}>
+            {content}
+        </div>
+    </div>
+)};
+
+const WhatsAppConnectionStatus = ({ status, message }: { status: 'connected' | 'disconnected' | 'loading', message: string }) => {
+    const statusConfig = {
+        connected: { text: message || 'Conectado', color: 'text-green-400', iconColor: 'text-green-500' },
+        disconnected: { text: message || 'Desconectado', color: 'text-yellow-400', iconColor: 'text-yellow-500' },
+        loading: { text: message || 'Aguardando Conexão', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
+    };
+    const currentStatus = statusConfig[status];
+
+    return (
+        <div className="p-3 mb-4 rounded-lg flex items-center justify-between bg-black/30 border border-white/10">
+            <div className="flex items-center gap-3">
+                <SignalIcon className={`w-6 h-6 ${currentStatus.iconColor}`} />
+                <div>
+                    <p className="font-semibold text-white">Status da Conexão</p>
+                    <p className={`text-sm ${currentStatus.color}`}>{currentStatus.text}</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Interface for chat objects, now managed locally
 interface WAChat {
     id: string;
     name: string;
-    isHumanSupport: boolean;
+    inQueue?: boolean;
     lastMessage: {
         body: string;
         timestamp: number;
@@ -368,7 +561,7 @@ interface WAMessage {
 }
 
 
-const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDataUpdate: (data: any) => void; }) => {
+const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string, type?: 'info' | 'success' | 'alert') => void; onDataUpdate: (data: any) => void; }) => {
     const [chats, setChats] = useState<WAChat[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [messages, setMessages] = useState<WAMessage[]>([]);
@@ -377,6 +570,21 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
     const wasConnected = useRef(false);
     
     const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
+
+    // Generate QR code image
+    const [qrCodeImg, setQrCodeImg] = useState<string | null>(null);
+    useEffect(() => {
+        if (qrCode) {
+            try {
+                const qr = new QRious({ value: qrCode, size: 250 });
+                setQrCodeImg(qr.toDataURL());
+            } catch(e) {
+                console.error("QR Generation error", e);
+            }
+        } else {
+            setQrCodeImg(null);
+        }
+    }, [qrCode]);
 
     useEffect(() => {
         const fetchInitialStatus = async () => {
@@ -429,16 +637,10 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                             setQrCode(qrCode || null);
                             const newStatus = isConnected ? 'connected' : (qrCode ? 'loading' : 'disconnected');
                             setStatus(newStatus);
-                        } else if (event.type === 'system_notification') {
-                            // Specific notifications requested by user
-                            addNotification(event.message);
-                            if (event.message.includes('tirar duvida')) {
-                                new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-                            }
                         } else if (event.type === 'message') {
                             const newMessage: WAMessage = event.data;
                             const chatId = newMessage.id.remote;
-                            // NOTE: Removed general "New message" notification as requested
+                            // NOTE: Removed generic notification per user request
                             
                             if (chatId === activeChatId) {
                                 setMessages(prev => [...prev, newMessage]);
@@ -449,7 +651,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                                 const updatedChat: WAChat = {
                                     id: chatId,
                                     name: event.senderName || chatId.split('@')[0],
-                                    isHumanSupport: prevChats[existingChatIndex]?.isHumanSupport || false, // Preserve status
+                                    // Preserve inQueue status unless updated by server sync
+                                    inQueue: prevChats[existingChatIndex]?.inQueue, 
                                     lastMessage: {
                                         body: newMessage.body,
                                         timestamp: newMessage.timestamp,
@@ -462,14 +665,17 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                                 return [updatedChat, ...newChats];
                             });
                         } else if (event.type === 'db_change') {
-                            // Sync human queue list specifically if provided
-                            if (event.data.human_chat_queue) {
-                                setChats(prev => prev.map(chat => ({
-                                    ...chat,
-                                    isHumanSupport: event.data.human_chat_queue.includes(chat.id)
-                                })));
-                            }
+                            // NOTE: Removed generic notification per user request
                             onDataUpdate(event.data);
+                        } else if (event.type === 'system_notification') {
+                            // Only show specific notifications here
+                            const { message, type } = event.data;
+                            addNotification(message, type);
+                            // Refresh chat list if queue status changed
+                            if (message.includes('tirar duvida')) {
+                                // Trigger a refresh of chats to update queue status
+                                fetch('/api/whatsapp/chats').then(res => res.json()).then(setChats);
+                            }
                         }
                     } else {
                          await new Promise(resolve => setTimeout(resolve, 5000));
@@ -497,7 +703,6 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                      if (response.ok) {
                          const data = await response.json();
                          setChats(data);
-                         addNotification("Conversas do WhatsApp sincronizadas.");
                      }
                  } catch (error) {
                      console.error("Failed to fetch initial chats:", error);
@@ -505,7 +710,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             }
         };
         fetchInitialChats();
-    }, [status, addNotification]);
+    }, [status]);
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -545,7 +750,6 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             });
         } catch (error) {
             console.error("Error sending message:", error);
-            addNotification("Erro ao enviar mensagem.");
             // Revert optimistic update
             setMessages(prev => prev.filter(m => m !== optimisticMessage));
         }
@@ -560,15 +764,11 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                 body: JSON.stringify({ chatId: activeChatId }),
             });
             if (response.ok) {
-                addNotification("Atendimento humano finalizado. O bot assumirá na próxima mensagem.");
-                // Update local state immediately
-                setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, isHumanSupport: false } : c));
-            } else {
-                throw new Error("Failed to resolve");
+                setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, inQueue: false } : c));
+                addNotification("Atendimento finalizado. Robô reativado para este cliente.", 'success');
             }
-        } catch (e) {
-            console.error("Error resolving human support:", e);
-            addNotification("Erro ao finalizar atendimento.");
+        } catch (error) {
+            console.error("Failed to resolve:", error);
         }
     };
     
@@ -593,13 +793,12 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
      }, [activeChatId, status]);
 
     const filteredChats = useMemo(() => {
-        const allFiltered = chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp)
+        return chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp)
                     .filter(chat => normalizeText(chat.name).includes(normalizeText(searchTerm)));
-        return {
-            humanSupport: allFiltered.filter(c => c.isHumanSupport),
-            others: allFiltered.filter(c => !c.isHumanSupport)
-        };
     }, [chats, searchTerm]);
+    
+    const humanQueueChats = filteredChats.filter(c => c.inQueue);
+    const normalChats = filteredChats.filter(c => !c.inQueue);
 
     if (status === 'loading' || (status === 'disconnected' && !wasConnected.current)) {
          return (
@@ -609,8 +808,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                     <h3 className="text-xl font-bold text-white mb-4">Conecte seu WhatsApp</h3>
                     <p className="text-gray-400 mt-2 max-w-md mb-6">Abra o WhatsApp no seu celular, vá para Aparelhos Conectados e escaneie o código abaixo.</p>
                     <div className="bg-white p-4 rounded-lg w-[282px] h-[282px] flex items-center justify-center">
-                        {qrCode ? (
-                            <img src={new QRious({ value: qrCode, size: 250 }).toDataURL()} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
+                        {qrCodeImg ? (
+                            <img src={qrCodeImg} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
                         ) : (
                             <div className="w-12 h-12 border-4 border-dashed border-gray-400 rounded-full animate-spin"></div>
                         )}
@@ -644,72 +843,67 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                         <FormInput label="" placeholder="Buscar conversa..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                     </div>
                     <div className="overflow-y-auto flex-grow">
-                        {filteredChats.humanSupport.length > 0 && (
-                            <div className="mb-2">
-                                <div className="px-3 py-2 text-xs font-bold text-yellow-400 uppercase tracking-wider bg-yellow-400/10 border-b border-yellow-400/20">
-                                    ⚠️ Aguardando Atendimento
+                        {/* HUMAN QUEUE SECTION */}
+                        {humanQueueChats.length > 0 && (
+                            <div className="bg-brand-red-dark/30 pb-2">
+                                <div className="px-3 py-2 text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                                    Aguardando Atendimento
                                 </div>
-                                {filteredChats.humanSupport.map(chat => (
-                                    <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-l-yellow-500 bg-yellow-500/5 hover:bg-yellow-500/10'}`}>
-                                        <UserCircleIcon className="w-10 h-10 text-yellow-400 flex-shrink-0" />
+                                {humanQueueChats.map(chat => (
+                                    <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors border-red-500 ${activeChatId === chat.id ? 'bg-red-900/30' : 'hover:bg-red-900/10'}`}>
+                                        <UserCircleIcon className="w-10 h-10 text-red-400 flex-shrink-0" />
                                         <div className="flex-grow overflow-hidden">
                                             <div className="flex justify-between items-baseline">
-                                                <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
-                                                <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                                                <p className="font-bold text-white truncate">{chat.name}</p>
+                                                <p className="text-xs text-red-300 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                                             </div>
-                                            <p className="text-sm text-gray-300 truncate font-semibold">Solicitou ajuda humana</p>
+                                            <p className="text-sm text-red-200/70 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         )}
                         
-                        <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                            Conversas
-                        </div>
-                        {filteredChats.others.map(chat => (
-                             <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
-                                <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
-                                <div className="flex-grow overflow-hidden">
-                                    <div className="flex justify-between items-baseline">
-                                        <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
-                                        <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                        {/* NORMAL CHATS */}
+                        {normalChats.length > 0 && (
+                             <div className="pt-2">
+                                <div className="px-3 py-1 text-xs font-bold text-gray-500 uppercase tracking-wider">Conversas</div>
+                                {normalChats.map(chat => (
+                                    <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
+                                        <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
+                                        <div className="flex-grow overflow-hidden">
+                                            <div className="flex justify-between items-baseline">
+                                                <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
+                                                <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                                            </div>
+                                            <p className="text-sm text-gray-400 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
+                                        </div>
                                     </div>
-                                    <p className="text-sm text-gray-400 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
-                                </div>
+                                ))}
                             </div>
-                        ))}
+                        )}
                     </div>
                 </div>
                 {/* Janela de Chat */}
-                <div className="flex-1 flex flex-col bg-brand-gray-dark rounded-r-lg">
+                <div className="flex-1 flex flex-col bg-brand-gray-dark rounded-r-lg relative">
                     {activeChat ? (
                          <>
-                            <div className="p-3 border-b border-white/10 flex justify-between items-center bg-brand-gray-medium">
-                                <div className="flex items-center gap-3">
-                                    <UserCircleIcon className={`w-10 h-10 ${activeChat.isHumanSupport ? 'text-yellow-400' : 'text-gray-400'}`} />
-                                    <div>
-                                        <p className="font-bold text-white">{activeChat.name}</p>
-                                        {activeChat.isHumanSupport && <p className="text-xs text-yellow-400 font-semibold animate-pulse">Solicitou Atendimento Humano</p>}
+                            {activeChat.inQueue && (
+                                <div className="bg-red-900/80 p-2 flex justify-between items-center px-4 border-b border-red-700">
+                                    <div className="flex items-center gap-2 text-white">
+                                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                                        <span className="text-sm font-semibold">Este cliente aguarda atendimento humano. O robô está pausado.</span>
                                     </div>
-                                </div>
-                                {activeChat.isHumanSupport && (
-                                    <button 
-                                        onClick={handleResolveHuman}
-                                        className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold py-2 px-4 rounded-md flex items-center gap-2"
-                                    >
-                                        <CheckCircleIcon className="w-5 h-5" />
+                                    <button onClick={handleResolveHuman} className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-1 px-3 rounded-md border border-red-400">
                                         Finalizar Atendimento
                                     </button>
-                                )}
-                            </div>
-                            
-                            {activeChat.isHumanSupport && (
-                                <div className="bg-yellow-500/10 border-b border-yellow-500/20 p-2 text-center text-sm text-yellow-200">
-                                    ⚠️ O robô está pausado para esta conversa. Você pode responder livremente. Clique em "Finalizar Atendimento" para reativar o robô.
                                 </div>
                             )}
-
+                            <div className="p-3 border-b border-white/10 flex items-center gap-3">
+                                <UserCircleIcon className="w-10 h-10 text-gray-400" />
+                                <p className="font-bold text-white">{activeChat.name}</p>
+                            </div>
                             <div className="p-4 space-y-4 flex-grow overflow-y-auto">
                                 {messages.map((msg, index) => (
                                     <ChatMessage 
@@ -741,9 +935,1504 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         </div>
     );
 };
-// ... (Modal, AutomatedMessageModal, SettingsView, UserForm, and App component logic continues same as previous, 
-// just ensure addNotification is NOT called for generic messages in the pollEvents loop inside App component as shown above)
-// ... (The rest of the file content matches the existing file structure)
-
 // --- MODAL AND FORM COMPONENTS ---
-// (Rest of the file content is identical to the provided previous version, ensuring context is maintained)
+type ModalProps = { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; };
+const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose} aria-modal="true" role="dialog">
+            <div className="bg-brand-gray-medium rounded-lg shadow-xl w-full max-w-md border border-brand-red-dark/50" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center p-4 border-b border-white/10">
+                    <h3 className="text-xl font-bold text-white">{title}</h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Fechar modal"><XMarkIcon className="w-6 h-6" /></button>
+                </div>
+                <div className="p-4 max-h-[80vh] overflow-y-auto">{children}</div>
+            </div>
+        </div>
+    );
+};
+
+const FormInput = ({ label, className, ...props }: { label: string, className?: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
+    <div>
+        <label htmlFor={props.id || props.name} className={`block text-sm font-medium text-gray-300 mb-1 ${label ? '' : 'sr-only'}`}>{label}</label>
+        <input {...props} className={`w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red ${className}`} />
+    </div>
+);
+
+type AutomatedMessageModalProps = {
+    isOpen: boolean;
+    message: AutomatedMessage | null;
+    onSave: (message: AutomatedMessage) => void;
+    onClose: () => void;
+};
+
+const AutomatedMessageModal: React.FC<AutomatedMessageModalProps> = ({ isOpen, message, onSave, onClose }) => {
+    const [formData, setFormData] = useState<Omit<AutomatedMessage, 'id'>>({
+        name: '',
+        enabled: true,
+        trigger: 'before_appointment',
+        value: 24,
+        unit: 'hours',
+        message: ''
+    });
+
+    useEffect(() => {
+        if (message) {
+            setFormData({
+                name: message.name,
+                enabled: message.enabled,
+                trigger: message.trigger,
+                value: message.value,
+                unit: message.unit,
+                message: message.message
+            });
+        } else {
+            // Reset for new message
+            setFormData({
+                name: '',
+                enabled: true,
+                trigger: 'before_appointment',
+                value: 24,
+                unit: 'hours',
+                message: ''
+            });
+        }
+    }, [message]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value, type } = e.target;
+        if (type === 'checkbox') {
+            const checked = (e.target as HTMLInputElement).checked;
+            setFormData(prev => ({ ...prev, [name]: checked }));
+        } else {
+            setFormData(prev => ({ ...prev, [name]: value }));
+        }
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const messageToSave = {
+            ...formData,
+            id: message?.id || `msg-${Date.now()}` // Use existing id or generate a new one
+        };
+        onSave(messageToSave);
+    };
+    
+    const triggerLabels: Record<AutomatedMessage['trigger'], string> = {
+         before_appointment: 'Antes do Agendamento',
+         after_service_finished: 'Após Finalizar Serviço',
+         service_maintenance_due: 'Lembrete de Manutenção de Serviço',
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={message ? 'Editar Mensagem' : 'Nova Mensagem Automática'}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <label htmlFor="enabled" className="font-medium text-white">Ativada</label>
+                    <input type="checkbox" id="enabled" name="enabled" checked={formData.enabled} onChange={handleChange} className="w-4 h-4 text-brand-red bg-gray-700 border-gray-600 rounded focus:ring-brand-red" />
+                </div>
+                <FormInput label="Nome da Mensagem" name="name" value={formData.name} onChange={handleChange} required />
+                <div>
+                    <label htmlFor="trigger" className="block text-sm font-medium text-gray-300 mb-1">Gatilho (Quando enviar)</label>
+                    <select id="trigger" name="trigger" value={formData.trigger} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                        {Object.entries(triggerLabels).map(([key, label]) => (
+                            <option key={key} value={key}>{label}</option>
+                        ))}
+                    </select>
+                </div>
+                {formData.trigger !== 'service_maintenance_due' && (
+                    <div className="flex gap-2 items-end">
+                        <div className="flex-grow">
+                            <FormInput label="Valor" type="number" name="value" value={formData.value} onChange={handleChange} required />
+                        </div>
+                        <div>
+                            <label htmlFor="unit" className="block text-sm font-medium text-gray-300 mb-1">Unidade</label>
+                            <select id="unit" name="unit" value={formData.unit} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                                <option value="hours">Horas</option>
+                                <option value="days">Dias</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+                <div>
+                    <label htmlFor="message" className="block text-sm font-medium text-gray-300 mb-1">Mensagem</label>
+                    <textarea id="message" name="message" value={formData.message} onChange={handleChange} rows={4} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red" required></textarea>
+                    <p className="text-xs text-gray-400 mt-1">Use variáveis como `[CLIENTE]`, `[CARRO_MODELO]`, `[SERVICO]`, `[DATA]`.</p>
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
+                    <button type="button" onClick={onClose} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                    <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar</button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+const SettingsView = ({
+    currentUser,
+    users,
+    operatingHours,
+    automatedMessages,
+    monthlyPlans,
+    services,
+    onSave,
+    onFileUpload,
+    catalogFiles,
+    isProcessingFile,
+    onFileDelete,
+    onUserSave,
+    onUserDelete,
+    onEditUser,
+}: {
+    currentUser: User;
+    users: User[];
+    operatingHours: OperatingHours;
+    automatedMessages: AutomatedMessage[];
+    monthlyPlans: MonthlyPlan[];
+    services: Service[];
+    onSave: (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => void;
+    onFileUpload: (files: File[]) => void;
+    catalogFiles: { id: string; file: { name: string, type: string } }[];
+    isProcessingFile: boolean;
+    onFileDelete: (fileId: string) => void;
+    onUserSave: (user: User) => void;
+    onUserDelete: (userId: string) => void;
+    onEditUser: (user: User) => void;
+}) => {
+    const [localOperatingHours, setLocalOperatingHours] = useState<OperatingHours>(operatingHours);
+    const [localMessages, setLocalMessages] = useState<AutomatedMessage[]>(automatedMessages);
+    const [localPlans, setLocalPlans] = useState<MonthlyPlan[]>(monthlyPlans);
+    const [localUsers, setLocalUsers] = useState<User[]>(users);
+    const [newTime, setNewTime] = useState('');
+    const [editingMessage, setEditingMessage] = useState<AutomatedMessage | 'new' | null>(null);
+    const [editingPlan, setEditingPlan] = useState<MonthlyPlan | 'new' | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => setLocalUsers(users), [users]);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            onFileUpload(Array.from(e.target.files));
+        }
+    };
+
+    const handleDayToggle = (dayIndex: number) => {
+        const newDaysOpen = localOperatingHours.daysOpen.includes(dayIndex)
+            ? localOperatingHours.daysOpen.filter(d => d !== dayIndex)
+            : [...localOperatingHours.daysOpen, dayIndex];
+        setLocalOperatingHours({ ...localOperatingHours, daysOpen: newDaysOpen });
+    };
+
+    const handleAddTime = () => {
+        if (newTime.match(/^\d{2}:\d{2}$/) && !localOperatingHours.availableTimes.includes(newTime)) {
+            const updatedTimes = [...localOperatingHours.availableTimes, newTime].sort();
+            setLocalOperatingHours({ ...localOperatingHours, availableTimes: updatedTimes });
+            setNewTime('');
+        } else {
+            alert('Formato de hora inválido (use HH:MM) ou horário já existente.');
+        }
+    };
+
+    const handleRemoveTime = (timeToRemove: string) => {
+        const updatedTimes = localOperatingHours.availableTimes.filter(t => t !== timeToRemove);
+        setLocalOperatingHours({ ...localOperatingHours, availableTimes: updatedTimes });
+    };
+
+    const handleSaveMessage = (message: AutomatedMessage) => {
+        const isNew = !localMessages.some(m => m.id === message.id);
+        if (isNew) {
+            setLocalMessages(prev => [...prev, { ...message, id: `msg-${Date.now()}` }]);
+        } else {
+            setLocalMessages(prev => prev.map(m => m.id === message.id ? message : m));
+        }
+        setEditingMessage(null);
+    };
+
+    const handleDeleteMessage = (id: string) => {
+        if (window.confirm('Tem certeza que deseja excluir esta mensagem automática?')) {
+            setLocalMessages(prev => prev.filter(m => m.id !== id));
+        }
+    };
+    
+     const handleSavePlan = (plan: MonthlyPlan) => {
+        const isNew = !localPlans.some(p => p.id === plan.id);
+        if (isNew) {
+            setLocalPlans(prev => [...prev, { ...plan, id: `plan-${Date.now()}` }]);
+        } else {
+            setLocalPlans(prev => prev.map(p => p.id === plan.id ? plan : p));
+        }
+        setEditingPlan(null);
+    };
+
+    const handleDeletePlan = (id: string) => {
+        if (window.confirm('Tem certeza que deseja excluir este plano? Clientes associados a ele perderão o vínculo.')) {
+            setLocalPlans(prev => prev.filter(p => p.id !== id));
+        }
+    };
+
+    const handleSaveChanges = () => {
+        onSave({
+            operatingHours: localOperatingHours,
+            automatedMessages: localMessages,
+            monthlyPlans: localPlans,
+            users: localUsers,
+        });
+    };
+
+    const weekdays = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+    const triggerLabels: Record<AutomatedMessage['trigger'], string> = {
+        before_appointment: 'Antes do Agendamento',
+        after_service_finished: 'Após Finalizar Serviço',
+        service_maintenance_due: 'Lembrete de Manutenção de Serviço',
+    };
+
+    return (
+        <div className="p-4 space-y-6">
+             {currentUser.role === 'owner' && (
+                <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-bold text-brand-red">Gerenciamento de Usuários</h3>
+                        <button onClick={() => onEditUser({} as User)} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><UserPlusIcon className="w-4 h-4" /> Novo Usuário</button>
+                    </div>
+                    <div className="space-y-3">
+                        {users.map(user => (
+                            <div key={user.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
+                                <div>
+                                    <p className="font-semibold text-white">{user.username} <span className="text-xs bg-brand-red/50 text-red-300 px-2 py-0.5 rounded-full ml-2">{user.role}</span></p>
+                                    <p className="text-sm text-gray-400">Acesso: {Object.entries(user.permissions).filter(([, allowed]) => allowed).map(([tabId]) => ALL_TABS.find(t=>t.id === tabId)?.label).join(', ')}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => onEditUser(user)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
+                                    {user.role !== 'owner' && <button onClick={() => onUserDelete(user.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-xl font-bold text-brand-red mb-4">Dias de Funcionamento</h3>
+                <div className="space-y-3">
+                    {weekdays.map((day, index) => (
+                        <div key={day} className="flex items-center justify-between bg-brand-gray-light p-3 rounded-md">
+                            <span className="text-white font-medium">{day}</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" checked={localOperatingHours.daysOpen.includes(index)} onChange={() => handleDayToggle(index)} className="sr-only peer" />
+                                <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-brand-red/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-red"></div>
+                            </label>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-xl font-bold text-brand-red mb-4">Horários de Atendimento</h3>
+                <div className="flex gap-2 mb-4">
+                    <input
+                        type="time"
+                        value={newTime}
+                        onChange={(e) => setNewTime(e.target.value)}
+                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
+                        placeholder="HH:MM"
+                    />
+                    <button onClick={handleAddTime} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 rounded-md flex-shrink-0">Adicionar</button>
+                </div>
+                <div className="space-y-2">
+                     {localOperatingHours.availableTimes.length > 0 ? localOperatingHours.availableTimes.map(time => (
+                        <div key={time} className="flex items-center justify-between bg-brand-gray-light p-2 rounded-md">
+                            <span className="font-mono text-white text-lg">{time}</span>
+                            <button onClick={() => handleRemoveTime(time)} className="text-red-500 hover:text-red-400 p-1"><TrashIcon className="w-5 h-5"/></button>
+                        </div>
+                    )) : <p className="text-gray-400 text-center py-2">Nenhum horário cadastrado.</p>}
+                </div>
+            </div>
+            
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-xl font-bold text-brand-red mb-4">Configurações do Atendimento</h3>
+                <div className="bg-brand-gray-light p-3 rounded-md">
+                    <p className="text-white font-medium mb-2">Catálogo de Serviços (PDF ou JPG)</p>
+                    <p className="text-sm text-gray-400 mb-3">Estes arquivos serão processados para atualizar sua lista de serviços. Todos os arquivos serão enviados para os clientes no chat.</p>
+                    <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        ref={fileInputRef}
+                        onChange={handleFileChange}
+                        className="hidden"
+                        id="file-upload"
+                        disabled={isProcessingFile}
+                        multiple
+                    />
+                    <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded-md transition-colors disabled:bg-blue-800 disabled:cursor-wait" disabled={isProcessingFile}>
+                         {isProcessingFile ? <> <ArrowPathIcon className="w-5 h-5 animate-spin" /> Processando...</> : <><ArchiveBoxIcon className="w-5 h-5"/>Fazer Upload do Catálogo</>}
+                    </button>
+                    {catalogFiles.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-white/20">
+                            <p className="text-sm font-semibold text-gray-300 mb-2">Arquivos Carregados:</p>
+                            <div className="space-y-2">
+                                {catalogFiles.map(({ id, file }) => (
+                                    <div key={id} className="flex items-center justify-between bg-brand-gray-dark p-2 rounded-md">
+                                        <div className="flex items-center gap-2 overflow-hidden">
+                                            {file.type.includes('pdf') ? <DocumentTextIcon className="w-5 h-5 text-brand-red flex-shrink-0"/> : <PhotoIcon className="w-5 h-5 text-brand-red flex-shrink-0"/>}
+                                            <span className="text-sm text-white truncate">{file.name}</span>
+                                        </div>
+                                        <button onClick={() => onFileDelete(id)} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0" disabled={isProcessingFile}>
+                                            <TrashIcon className="w-5 h-5"/>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-brand-red">Planos Mensais</h3>
+                    <button onClick={() => setEditingPlan('new')} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><PlusIcon className="w-4 h-4" /> Novo Plano</button>
+                </div>
+                 <div className="space-y-3">
+                     {localPlans.map(plan => (
+                         <div key={plan.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
+                             <div>
+                                 <p className="font-semibold text-white">{plan.name}</p>
+                                 <p className="text-sm text-green-400 font-bold">R$ {plan.price.toFixed(2)}/mês</p>
+                             </div>
+                             <div className="flex gap-2">
+                                 <button onClick={() => setEditingPlan(plan)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
+                                 <button onClick={() => handleDeletePlan(plan.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>
+                             </div>
+                         </div>
+                     ))}
+                     {localPlans.length === 0 && <p className="text-gray-400 text-center py-4">Nenhum plano mensal configurado.</p>}
+                 </div>
+            </div>
+
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-brand-red">Mensagens Automáticas</h3>
+                    <button onClick={() => setEditingMessage('new')} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><PlusIcon className="w-4 h-4" /> Novo Mensagem</button>
+                </div>
+                <div className="space-y-3">
+                    {localMessages.map(msg => (
+                        <div key={msg.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
+                            <div>
+                                <p className={`font-semibold ${msg.enabled ? 'text-white' : 'text-gray-500 line-through'}`}>{msg.name}</p>
+                                <p className="text-sm text-gray-400">{triggerLabels[msg.trigger]}: <span className="font-semibold">{msg.trigger !== 'service_maintenance_due' ? `${msg.value} ${msg.unit === 'hours' ? 'horas' : 'dias'}` : 'Automático'}</span></p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => setEditingMessage(msg)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
+                                <button onClick={() => handleDeleteMessage(msg.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>
+                            </div>
+                        </div>
+                    ))}
+                    {localMessages.length === 0 && <p className="text-gray-400 text-center py-4">Nenhuma mensagem automática configurada.</p>}
+                </div>
+            </div>
+
+            <button onClick={handleSaveChanges} className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-3 px-4 rounded-md transition-colors text-lg">Salvar Todas as Configurações</button>
+        
+            <AutomatedMessageModal 
+                isOpen={editingMessage !== null}
+                message={editingMessage === 'new' ? null : editingMessage}
+                onSave={handleSaveMessage}
+                onClose={() => setEditingMessage(null)}
+            />
+            
+             <MonthlyPlanModal 
+                isOpen={editingPlan !== null}
+                plan={editingPlan === 'new' ? null : editingPlan}
+                services={services}
+                onSave={handleSavePlan}
+                onClose={() => setEditingPlan(null)}
+            />
+        </div>
+    );
+};
+
+// ... (Other components like BarChart, DashboardView, etc. remain mostly the same)
+const BarChart = ({ data, labels }: { data: number[]; labels: string[] }) => {
+    const maxValue = Math.max(...data, 1); // Avoid division by zero
+    return (
+        <div className="flex justify-around items-end h-64 bg-brand-gray-light p-4 rounded-md gap-2">
+            {data.map((value, index) => (
+                <div key={index} className="flex flex-col items-center flex-1" title={`R$ ${value.toFixed(2)}`}>
+                    <div
+                        className="w-full bg-brand-red hover:bg-red-700 transition-all duration-300 rounded-t-md"
+                        style={{ height: `${(value / maxValue) * 100}%` }}
+                    ></div>
+                    <span className="text-xs text-gray-400 mt-2">{labels[index]}</span>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const DashboardView = ({ appointments, clients, services, monthlyPlans }: { appointments: Appointment[]; clients: Client[]; services: Service[]; monthlyPlans: MonthlyPlan[]; }) => {
+    const getFirstDayOfMonth = () => {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    };
+    const getToday = () => new Date().toISOString().split('T')[0];
+
+    const [startDateInput, setStartDateInput] = useState(getFirstDayOfMonth());
+    const [endDateInput, setEndDateInput] = useState(getToday());
+    const [activeStartDate, setActiveStartDate] = useState(getFirstDayOfMonth());
+    const [activeEndDate, setActiveEndDate] = useState(getToday());
+
+    const MetricCard = ({ icon, title, children, className = '' }: { icon: React.ReactNode, title: string, children?: React.ReactNode, className?: string }) => (
+        <div className={`bg-brand-gray-medium p-4 rounded-lg border border-white/10 flex flex-col ${className}`}>
+            <div className="flex items-center gap-3 mb-4">
+                <div className="bg-brand-red/20 p-2 rounded-full">{icon}</div>
+                <h3 className="text-lg font-semibold text-white">{title}</h3>
+            </div>
+            <div className="flex-grow">{children}</div>
+        </div>
+    );
+    
+    const filteredFinishedAppointments = useMemo(() => {
+        return appointments.filter(a => {
+            return a.status === AppointmentStatus.Finished && a.date >= activeStartDate && a.date <= activeEndDate;
+        });
+    }, [appointments, activeStartDate, activeEndDate]);
+
+    // --- METRICS ---
+    const getRevenue = useCallback((apps: Appointment[]) => apps
+        .flatMap(a => a.serviceIds.map(serviceId => services.find(s => s.id === serviceId)?.price || 0))
+        .reduce((sum, price) => sum + price, 0), [services]);
+
+    const dailyRevenue = useMemo(() => {
+        const todayStr = getToday();
+        const todaysAppointments = appointments.filter(a => a.status === AppointmentStatus.Finished && a.date === todayStr);
+        return getRevenue(todaysAppointments);
+    }, [appointments, getRevenue]);
+
+    const revenueForPeriod = getRevenue(filteredFinishedAppointments);
+
+    const topClients = useMemo(() => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        const appointmentsThisMonth = appointments.filter(a => {
+            const appDate = new Date(a.date + 'T00:00:00');
+            return appDate.getMonth() === currentMonth && appDate.getFullYear() === currentYear;
+        });
+
+        const clientCounts = appointmentsThisMonth.reduce((acc, app) => {
+            acc[app.clientId] = (acc[app.clientId] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+
+        return Object.entries(clientCounts)
+            .map(([clientId, count]) => ({
+                client: clients.find(c => c.id === clientId),
+                count,
+            }))
+            .filter(item => item.client)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 3);
+    }, [appointments, clients]);
+    
+    // Faturamento Mensal (last 6 months - independent of filter)
+    const monthlyRevenueData = useMemo(() => {
+        const labels: string[] = [];
+        const data: number[] = [];
+        const now = new Date();
+        const allFinished = appointments.filter(a => a.status === AppointmentStatus.Finished);
+        
+        for (let i = 5; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const monthName = date.toLocaleString('pt-BR', { month: 'short' }).replace('.', '').toLocaleUpperCase();
+            labels.push(monthName);
+            
+            const monthRevenue = getRevenue(allFinished.filter(a => {
+                const appDate = new Date(a.date + 'T00:00:00');
+                return appDate.getMonth() === date.getMonth() && appDate.getFullYear() === date.getFullYear();
+            }));
+            data.push(monthRevenue);
+        }
+        return { labels, data };
+    }, [appointments, getRevenue]);
+
+    // Serviços Mais/Menos Vendidos (based on filter)
+    const serviceCounts = filteredFinishedAppointments
+        .flatMap(a => a.serviceIds)
+        .reduce((acc, id) => {
+            acc[id] = (acc[id] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+
+    const sortedServices = Object.entries(serviceCounts)
+        .map(([id, count]) => ({ service: services.find(s => s.id === id), count }))
+        .filter(item => item.service)
+        .sort((a, b) => b.count - a.count);
+        
+    const mostSoldServices = sortedServices.slice(0, 3);
+    const leastSoldServices = sortedServices.length > 3 ? sortedServices.slice(-3).reverse() : [];
+
+    // Formas de Pagamento (based on filter)
+    const paymentMethodCounts = filteredFinishedAppointments
+        .reduce((acc, app) => {
+            if (app.paymentMethod) {
+                acc[app.paymentMethod] = (acc[app.paymentMethod] || 0) + 1;
+            }
+            return acc;
+        }, {} as Record<string, number>);
+    
+    const formatDate = (dateStr: string) => dateStr.split('-').reverse().join('/');
+
+    return (
+        <div className="p-4 space-y-4">
+             <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Filtrar por Período</label>
+                <div className="flex flex-col md:flex-row gap-2">
+                    <input
+                        type="date"
+                        value={startDateInput}
+                        onChange={e => setStartDateInput(e.target.value)}
+                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
+                    />
+                     <input
+                        type="date"
+                        value={endDateInput}
+                        onChange={e => setEndDateInput(e.target.value)}
+                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
+                    />
+                    <button 
+                        onClick={() => { setActiveStartDate(startDateInput); setActiveEndDate(endDateInput); }} 
+                        className="bg-brand-red hover:bg-red-700 text-white font-bold px-4 rounded-md"
+                    >
+                        Filtrar
+                    </button>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <MetricCard icon={<CurrencyDollarIcon className="w-8 h-8 text-brand-red"/>} title="Faturamento do Dia">
+                    <p className="text-4xl font-bold text-white">R$ {dailyRevenue.toFixed(2)}</p>
+                    <p className="text-sm text-gray-400">Receita de serviços finalizados hoje</p>
+                </MetricCard>
+
+                <MetricCard icon={<CurrencyDollarIcon className="w-8 h-8 text-brand-red"/>} title="Faturamento Bruto">
+                    <p className="text-4xl font-bold text-white">R$ {revenueForPeriod.toFixed(2)}</p>
+                    <p className="text-sm text-gray-400">De {formatDate(activeStartDate)} até {formatDate(activeEndDate)}</p>
+                </MetricCard>
+
+                <MetricCard icon={<TrophyIcon className="w-8 h-8 text-yellow-400"/>} title="Top Clientes (Mês)">
+                    {topClients.length > 0 ? (
+                        <ul className="space-y-2">
+                            {topClients.map(({ client, count }) => (
+                                <li key={client!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
+                                    <span className="text-white font-medium truncate pr-2">{client!.name}</span>
+                                    <span className="text-yellow-400 font-bold text-lg flex-shrink-0">{count}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-gray-400 text-center py-2">Nenhum agendamento este mês.</p>}
+                </MetricCard>
+            </div>
+
+            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
+                <h3 className="text-lg font-semibold text-white mb-4">Faturamento Mensal (Últimos 6 Meses)</h3>
+                <BarChart labels={monthlyRevenueData.labels} data={monthlyRevenueData.data} />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <MetricCard icon={<SparklesIcon className="w-6 h-6 text-brand-red"/>} title="Serviços Mais Vendidos (Período)">
+                    {mostSoldServices.length > 0 ? (
+                        <ul className="space-y-2">
+                            {mostSoldServices.map(({ service, count }) => (
+                                <li key={service!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
+                                    <span className="text-white font-medium truncate pr-2">{service!.name}</span>
+                                    <span className="text-brand-red font-bold text-lg flex-shrink-0">{count}x</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-gray-400 text-center py-2">Nenhum serviço finalizado no período.</p>}
+                </MetricCard>
+
+                <MetricCard icon={<ArchiveBoxIcon className="w-6 h-6 text-brand-red"/>} title="Serviços Menos Vendidos (Período)">
+                     {leastSoldServices.length > 0 ? (
+                        <ul className="space-y-2">
+                            {leastSoldServices.map(({ service, count }) => (
+                                <li key={service!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
+                                    <span className="text-white font-medium truncate pr-2">{service!.name}</span>
+                                    <span className="text-brand-red font-bold text-lg flex-shrink-0">{count}x</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-gray-400 text-center py-2">Dados insuficientes.</p>}
+                </MetricCard>
+
+                <MetricCard icon={<ChartPieIcon className="w-6 h-6 text-brand-red"/>} title="Formas de Pagamento (Período)">
+                     {Object.keys(paymentMethodCounts).length > 0 ? (
+                        <ul className="space-y-2">
+                            {Object.entries(paymentMethodCounts).sort((a, b) => b[1] - a[1]).map(([method, count]) => (
+                                <li key={method} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
+                                    <span className="text-white font-medium">{method}</span>
+                                    <span className="text-brand-red font-bold text-lg">{count}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : <p className="text-gray-400 text-center py-2">Nenhum pagamento registrado no período.</p>}
+                </MetricCard>
+            </div>
+        </div>
+    );
+};
+
+const ClientForm = ({ client, onSave, onCancel, monthlyPlans }: { client: Client | null; onSave: (client: Omit<Client, 'id'> & { id?: string }) => void; onCancel: () => void; monthlyPlans: MonthlyPlan[] }) => {
+    const [formData, setFormData] = useState({ id: client?.id || '', name: client?.name || '', cpf: client?.cpf || '', whatsapp: client?.whatsapp || '', cars: client?.cars || [], monthlyPlanId: client?.monthlyPlanId || '' });
+    const [newCar, setNewCar] = useState({ model: '', plate: '', protections: '' });
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const handleNewCarChange = (e: React.ChangeEvent<HTMLInputElement>) => setNewCar(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+    const handleAddCar = () => {
+        if (!newCar.model || !newCar.plate) {
+            alert('Modelo e placa são obrigatórios para adicionar um novo veículo.');
+            return;
+        }
+        const newVehicle: Car = { id: `car${Date.now()}`, model: newCar.model, plate: newCar.plate, protections: newCar.protections.split(',').map(p => p.trim()).filter(p => p) };
+        setFormData(prev => ({ ...prev, cars: [...prev.cars, newVehicle] }));
+        setNewCar({ model: '', plate: '', protections: '' });
+    };
+    
+    const handleDeleteCar = (carId: string) => setFormData(prev => ({ ...prev, cars: prev.cars.filter(car => car.id !== carId) }));
+
+    const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSave(formData); };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <FormInput label="Nome Completo" name="name" value={formData.name} onChange={handleChange} required />
+            <FormInput label="CPF" name="cpf" value={formData.cpf} onChange={handleChange} required />
+            <FormInput label="WhatsApp (com DDD)" name="whatsapp" value={formData.whatsapp} onChange={handleChange} required />
+            
+             <div>
+                <label htmlFor="monthlyPlanId" className="block text-sm font-medium text-gray-300 mb-1">Plano Mensal</label>
+                <select id="monthlyPlanId" name="monthlyPlanId" value={formData.monthlyPlanId} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                    <option value="">Nenhum Plano</option>
+                    {monthlyPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                </select>
+            </div>
+            
+            <div className="pt-4 border-t border-white/20 mt-4">
+                <h4 className="text-lg font-semibold text-brand-red mb-3">Veículos</h4>
+                <div className="space-y-2 mb-4">
+                    {formData.cars.map(car => (
+                        <div key={car.id} className="bg-brand-gray-dark p-2 rounded-md flex justify-between items-center">
+                            <div>
+                                <p className="font-semibold text-white">{car.model} ({car.plate})</p>
+                                <p className="text-xs text-gray-400">{car.protections.join(', ')}</p>
+                            </div>
+                            <button type="button" onClick={() => handleDeleteCar(car.id)} className="text-red-400 hover:text-red-300"><TrashIcon className="w-4 h-4"/></button>
+                        </div>
+                    ))}
+                </div>
+                <div className="bg-brand-gray-dark/50 p-3 rounded-md space-y-2 border border-dashed border-white/20">
+                    <h5 className="font-semibold text-white">Adicionar Novo Veículo</h5>
+                    <FormInput label="Modelo" name="model" value={newCar.model} onChange={handleNewCarChange} placeholder="Ex: Honda Civic" />
+                    <FormInput label="Placa" name="plate" value={newCar.plate} onChange={handleNewCarChange} placeholder="ABC-1234" />
+                    <FormInput label="Proteções (separado por vírgula)" name="protections" value={newCar.protections} onChange={handleNewCarChange} placeholder="PPF, Vitrificação 5 anos" />
+                    <button type="button" onClick={handleAddCar} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md mt-2">Adicionar Veículo</button>
+                </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Cliente</button>
+            </div>
+        </form>
+    );
+};
+
+const AppointmentForm = ({ appointment, clients, services, monthlyPlans, clientPlanUsages, onSave, onCancel }: { appointment: Appointment | null; clients: Client[]; services: Service[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; onSave: (appointment: Omit<Appointment, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
+    const [formData, setFormData] = useState({
+        id: appointment?.id || '',
+        clientId: appointment?.clientId || '',
+        carId: appointment?.carId || '',
+        serviceIds: appointment?.serviceIds || [],
+        date: appointment?.date || new Date().toISOString().split('T')[0],
+        time: appointment?.time || '09:00',
+        status: appointment?.status || AppointmentStatus.Scheduled,
+        isPlanService: appointment?.isPlanService || false,
+        paymentMethod: appointment?.paymentMethod || '',
+    });
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+    
+    const handleServiceChange = (serviceId: string) => {
+        setFormData(prev => {
+            const newServiceIds = prev.serviceIds.includes(serviceId)
+                ? prev.serviceIds.filter(id => id !== serviceId)
+                : [...prev.serviceIds, serviceId];
+            return { ...prev, serviceIds: newServiceIds };
+        });
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const client = clients.find(c => c.id === formData.clientId);
+        const plan = monthlyPlans.find(p => p.id === client?.monthlyPlanId);
+        const isAnyServiceInPlan = formData.serviceIds.some(sid => plan?.includedServices.some(is => is.serviceId === sid));
+        
+        const dataToSave: Omit<Appointment, 'id'> & { id?: string } = {
+            ...formData,
+            isPlanService: isAnyServiceInPlan,
+            paymentMethod: formData.paymentMethod ? (formData.paymentMethod as Appointment['paymentMethod']) : undefined,
+        };
+        
+        onSave(dataToSave);
+    };
+
+    const selectedClient = clients.find(c => c.id === formData.clientId);
+    const clientPlan = monthlyPlans.find(p => p.id === selectedClient?.monthlyPlanId);
+    
+    const getFirstDayOfCurrentMonth = () => {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    };
+    const currentCycleStart = getFirstDayOfCurrentMonth();
+    const clientUsage = clientPlanUsages.find(u => u.clientId === selectedClient?.id && u.cycleStartDate === currentCycleStart);
+
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+             <div>
+                 <label htmlFor="clientId" className="block text-sm font-medium text-gray-300 mb-1">Cliente</label>
+                 <select id="clientId" name="clientId" value={formData.clientId} onChange={handleChange} required className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                     <option value="">Selecione um cliente</option>
+                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                 </select>
+             </div>
+             {selectedClient && (
+                 <div>
+                     <label htmlFor="carId" className="block text-sm font-medium text-gray-300 mb-1">Veículo</label>
+                     <select id="carId" name="carId" value={formData.carId} onChange={handleChange} required className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                         <option value="">Selecione um veículo</option>
+                         {selectedClient.cars.map(car => <option key={car.id} value={car.id}>{car.model} ({car.plate})</option>)}
+                     </select>
+                 </div>
+             )}
+             <div>
+                 <label className="block text-sm font-medium text-gray-300 mb-1">Serviços</label>
+                 <div className="space-y-2 max-h-40 overflow-y-auto bg-brand-gray-dark p-2 rounded-md border border-brand-gray-light">
+                     {services.map(service => {
+                         const planServiceInfo = clientPlan?.includedServices.find(is => is.serviceId === service.id);
+                         const usedCount = clientUsage?.usedServices[service.id] || 0;
+                         const isIncluded = planServiceInfo && usedCount < planServiceInfo.quantity;
+                         
+                         return (
+                             <div key={service.id} className="flex items-center justify-between">
+                                 <div className="flex items-center">
+                                     <input id={`service-${service.id}`} type="checkbox" checked={formData.serviceIds.includes(service.id)} onChange={() => handleServiceChange(service.id)} className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-brand-red focus:ring-brand-red"/>
+                                     <label htmlFor={`service-${service.id}`} className="ml-2 text-sm text-gray-300">{service.name}</label>
+                                 </div>
+                                 {isIncluded && (
+                                     <span className="text-xs font-semibold bg-yellow-600/30 text-yellow-300 px-2 py-0.5 rounded-full">Incluso no Plano</span>
+                                 )}
+                             </div>
+                         )
+                     })}
+                 </div>
+             </div>
+             <FormInput label="Data" name="date" type="date" value={formData.date} onChange={handleChange} required />
+             <FormInput label="Horário" name="time" type="time" value={formData.time} onChange={handleChange} required />
+             <div>
+                <label htmlFor="paymentMethod" className="block text-sm font-medium text-gray-300 mb-1">Forma de Pagamento</label>
+                <select id="paymentMethod" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
+                    <option value="">Não definido</option>
+                    <option value="PIX">PIX</option>
+                    <option value="Cartão de Crédito">Cartão de Crédito</option>
+                    <option value="Cartão de Débito">Cartão de Débito</option>
+                    <option value="Dinheiro">Dinheiro</option>
+                </select>
+            </div>
+             
+             <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                 <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                 <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Agendamento</button>
+             </div>
+        </form>
+    );
+};
+
+const MonthlyPlanModal = ({ isOpen, plan, services, onSave, onClose }: { isOpen: boolean; plan: MonthlyPlan | null; services: Service[]; onSave: (plan: MonthlyPlan) => void; onClose: () => void; }) => {
+    const [formData, setFormData] = useState<Omit<MonthlyPlan, 'id'>>({ name: '', price: 0, includedServices: [] });
+
+    useEffect(() => {
+        if (plan) {
+            setFormData({ name: plan.name, price: plan.price, includedServices: plan.includedServices });
+        } else {
+            setFormData({ name: '', price: 0, includedServices: [] });
+        }
+    }, [plan]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: name === 'price' ? parseFloat(value) || 0 : value }));
+    };
+
+    const handleServiceInclusionChange = (serviceId: string, quantity: number) => {
+        setFormData(prev => {
+            const existing = prev.includedServices.find(s => s.serviceId === serviceId);
+            if (existing) {
+                return { ...prev, includedServices: quantity > 0 ? prev.includedServices.map(s => s.serviceId === serviceId ? { ...s, quantity } : s) : prev.includedServices.filter(s => s.serviceId !== serviceId) };
+            } else if (quantity > 0) {
+                return { ...prev, includedServices: [...prev.includedServices, { serviceId, quantity }] };
+            }
+            return prev;
+        });
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave({ ...formData, id: plan?.id || '' });
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={plan ? 'Editar Plano Mensal' : 'Novo Plano Mensal'}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <FormInput label="Nome do Plano" name="name" value={formData.name} onChange={handleChange} required />
+                <FormInput label="Preço Mensal (R$)" name="price" type="number" value={formData.price} onChange={handleChange} required />
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Serviços Inclusos</label>
+                    <div className="space-y-2 max-h-48 overflow-y-auto bg-brand-gray-dark p-2 rounded-md border border-brand-gray-light">
+                        {services.map(service => (
+                            <div key={service.id} className="flex items-center justify-between">
+                                <span className="text-gray-300">{service.name}</span>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={formData.includedServices.find(s => s.serviceId === service.id)?.quantity || 0}
+                                    onChange={e => handleServiceInclusionChange(service.id, parseInt(e.target.value, 10) || 0)}
+                                    className="w-16 bg-brand-gray-light text-white rounded-md p-1 text-center"
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                    <button type="button" onClick={onClose} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                    <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Plano</button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+const ServiceForm = ({ service, onSave, onCancel }: { service: Service | null; onSave: (service: Omit<Service, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
+    const [formData, setFormData] = useState({
+        id: service?.id || '',
+        name: service?.name || '',
+        description: service?.description || '',
+        duration: service?.duration || 0,
+        price: service?.price || 0,
+        maintenanceIntervalMonths: service?.maintenanceIntervalMonths || undefined,
+    });
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value, type } = e.target;
+        setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) || 0 : value }));
+    };
+    
+    const handleMaintenanceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setFormData(prev => ({...prev, maintenanceIntervalMonths: value === '' ? undefined : parseInt(value, 10) || 0 }));
+    }
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave(formData);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <FormInput label="Nome do Serviço" name="name" value={formData.name} onChange={handleChange} required />
+            <FormInput label="Descrição" name="description" value={formData.description} onChange={handleChange} required />
+            <FormInput label="Duração (minutos)" name="duration" type="number" value={formData.duration} onChange={handleChange} required />
+            <FormInput label="Preço (R$)" name="price" type="number" step="0.01" value={formData.price} onChange={handleChange} required />
+            <FormInput label="Intervalo de Manutenção (meses)" name="maintenanceIntervalMonths" type="number" value={formData.maintenanceIntervalMonths ?? ''} onChange={handleMaintenanceChange} placeholder="Opcional" />
+            
+            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Serviço</button>
+            </div>
+        </form>
+    );
+};
+
+type LoginViewProps = {
+    onLogin: (username: string, password: string) => void;
+    error: string;
+};
+
+const LoginView: React.FC<LoginViewProps> = ({ onLogin, error }) => {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onLogin(username, password);
+    };
+
+    return (
+        <div className="bg-brand-gray-dark min-h-screen flex items-center justify-center p-4">
+            <div className="w-full max-w-sm">
+                <div className="flex justify-center mb-6">
+                    <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="CAR CLASS Logo" className="h-20 w-20 rounded-full" />
+                </div>
+                 <h1 className="text-3xl font-bold text-center text-white tracking-wider mb-2">CAR<span className="text-brand-red">CLASS</span></h1>
+                 <p className="text-center text-gray-400 mb-8">Acesso ao Painel Administrativo</p>
+                <form onSubmit={handleSubmit} className="bg-brand-gray-medium shadow-lg rounded-lg px-8 pt-6 pb-8 mb-4 border border-white/10">
+                    <div className="mb-4 relative">
+                        <UserCircleIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <FormInput 
+                            label="" 
+                            id="username"
+                            name="username"
+                            type="text"
+                            value={username}
+                            onChange={e => setUsername(e.target.value)}
+                            placeholder="Usuário"
+                            className="pl-10"
+                            required 
+                        />
+                    </div>
+                    <div className="mb-6 relative">
+                         <LockClosedIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <FormInput 
+                            label="" 
+                            id="password"
+                            name="password"
+                            type="password"
+                            value={password}
+                            onChange={e => setPassword(e.target.value)}
+                            placeholder="Senha"
+                            className="pl-10"
+                        />
+                    </div>
+                    {error && <p className="text-red-500 text-xs italic mb-4 text-center">{error}</p>}
+                    <div className="flex items-center justify-between">
+                        <button 
+                            className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:shadow-outline transition-colors" 
+                            type="submit"
+                        >
+                            Entrar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+// ... Notification Panel Component
+const NotificationPanel = ({ notifications, onClear, onMarkAsRead }: { notifications: NotificationItem[], onClear: (id: string) => void, onMarkAsRead: (id: string) => void }) => {
+    return (
+        <div className="absolute top-14 right-4 w-80 bg-brand-gray-medium rounded-lg shadow-lg border border-white/10 z-50">
+            <div className="p-3 border-b border-white/10">
+                <h4 className="font-bold text-white">Notificações</h4>
+            </div>
+            <div className="max-h-96 overflow-y-auto">
+                {notifications.length > 0 ? notifications.map(n => (
+                    <div key={n.id} onClick={() => onMarkAsRead(n.id)} className={`p-3 border-b border-white/10 text-sm cursor-pointer hover:bg-brand-gray-light ${!n.read ? 'bg-brand-red/10' : ''}`}>
+                        <p className={`text-gray-200 ${!n.read ? 'font-semibold' : ''}`}>{n.message}</p>
+                        <p className="text-xs text-gray-500 mt-1">{new Date(n.timestamp).toLocaleString('pt-BR')}</p>
+                    </div>
+                )) : <p className="text-gray-400 text-center p-4">Nenhuma notificação.</p>}
+            </div>
+        </div>
+    );
+};
+
+// ... User Form Modal Component
+const UserForm = ({ user, onSave, onCancel }: { user: User | null; onSave: (user: Omit<User, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
+    const [formData, setFormData] = useState<Omit<User, 'id'>>({ username: '', password: '', role: 'employee', permissions: {} });
+
+    useEffect(() => {
+        if (user) {
+            setFormData({
+                username: user.username || '',
+                password: '', // Always clear password for security
+                role: user.role || 'employee',
+                permissions: user.permissions || {}
+            });
+        }
+    }, [user]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
+    const handlePermissionChange = (tabId: string, isAllowed: boolean) => {
+        setFormData(p => ({ ...p, permissions: { ...p.permissions, [tabId]: isAllowed } }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave({ ...formData, id: user?.id });
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <FormInput label="Nome de Usuário" name="username" value={formData.username} onChange={handleChange} required />
+            <FormInput label="Senha" name="password" type="password" value={formData.password} onChange={handleChange} placeholder={user?.id ? "Deixe em branco para não alterar" : ""} required={!user?.id} />
+            <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Permissões de Acesso</label>
+                <div className="space-y-2 bg-brand-gray-dark p-3 rounded-md border border-brand-gray-light">
+                    {ALL_TABS.map(tab => (
+                        <div key={tab.id} className="flex items-center">
+                            <input
+                                id={`perm-${tab.id}`}
+                                type="checkbox"
+                                checked={!!formData.permissions[tab.id]}
+                                onChange={(e) => handlePermissionChange(tab.id, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-brand-red focus:ring-brand-red"
+                            />
+                            <label htmlFor={`perm-${tab.id}`} className="ml-2 text-sm text-gray-300">{tab.label}</label>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
+                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
+                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Usuário</button>
+            </div>
+        </form>
+    );
+};
+
+
+const App = () => {
+    const [clients, setClients] = useState<Client[]>(MOCK_CLIENTS);
+    const [services, setServices] = useState<Service[]>(MOCK_SERVICES);
+    const [appointments, setAppointments] = useState<Appointment[]>(MOCK_APPOINTMENTS);
+    const [monthlyPlans, setMonthlyPlans] = useState<MonthlyPlan[]>(MOCK_PLANS);
+    const [clientPlanUsages, setClientPlanUsages] = useState<ClientPlanUsage[]>(MOCK_CLIENT_PLAN_USAGE);
+    const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+    const [conversationLogs, setConversationLogs] = useState<ConversationLog[]>([]);
+    const [isProcessingFile, setIsProcessingFile] = useState(false);
+    
+    const [isLoading, setIsLoading] = useState(true);
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [loginError, setLoginError] = useState('');
+    const [users, setUsers] = useState<User[]>([]);
+
+    const [operatingHours, setOperatingHours] = useState<OperatingHours>({
+         daysOpen: [1, 2, 3, 4, 5, 6], // Mon-Sat
+         availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
+    });
+    const [automatedMessages, setAutomatedMessages] = useState<AutomatedMessage[]>([]);
+
+    const [activeTab, setActiveTab] = useState('dashboard');
+    const [editingClient, setEditingClient] = useState<Client | null>(null);
+    const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+    const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+    const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+    const [editingService, setEditingService] = useState<Service | null>(null);
+    const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+    
+    const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: { name: string, type: string } }[]>([]);
+    const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+    const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
+    const [qrCode, setQrCode] = useState<string | null>(null);
+    const [statusMessage, setStatusMessage] = useState('Inicializando...');
+
+    const addNotification = useCallback((message: string, type: 'info' | 'success' | 'alert' = 'info') => {
+         const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
+         setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
+         if (type === 'alert' && window.Audio) {
+             try {
+                 // Simple beep for alert
+                 const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                 const oscillator = audioCtx.createOscillator();
+                 oscillator.type = 'square';
+                 oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // 440Hz
+                 oscillator.connect(audioCtx.destination);
+                 oscillator.start();
+                 oscillator.stop(audioCtx.currentTime + 0.5); // Play for 0.5s
+             } catch(e) { console.error("Audio play failed", e); }
+         }
+    }, []);
+    
+    const saveData = useCallback(async (dataToSave: { [key: string]: any }) => {
+        try {
+            const response = await fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dataToSave),
+            });
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
+        } catch (error) {
+            console.error("Failed to save data:", error);
+            // addNotification("Erro: Falha ao salvar os dados no servidor.");
+        }
+    }, []);
+    
+    const handleDataUpdateFromBot = useCallback((data: any) => {
+        if (!data) return;
+        // Robust update: If the server sends a full list, replace the local state.
+        if (data.clients) {
+            setClients(data.clients);
+        }
+        if (data.appointments) {
+            setAppointments(data.appointments);
+        }
+    }, []);
+
+    const loadData = useCallback(async () => {
+        try {
+            const response = await fetch('/api/data');
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
+            const data = await response.json();
+            setClients(data.clients || []);
+            setServices(data.services || []);
+            setAppointments(data.appointments || []);
+            setMonthlyPlans(data.monthlyPlans || []);
+            setClientPlanUsages(data.clientPlanUsages || []);
+            setConversationLogs(data.conversationLogs || []);
+            setUsers(data.users || []);
+            setCatalogFiles(data.catalogFiles || []);
+             if (data.operatingHours) setOperatingHours(data.operatingHours);
+            if (data.automatedMessages) setAutomatedMessages(data.automatedMessages);
+        } catch (error) {
+            console.error("Failed to load data from server:", error);
+            // addNotification("Erro: Não foi possível carregar os dados do servidor.");
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+    
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+
+    const handleClientSave = useCallback((clientData: Omit<Client, 'id'> & { id?: string }) => {
+        setClients(prevClients => {
+            let newClients;
+            if (clientData.id) {
+                newClients = prevClients.map(c => c.id === clientData.id ? { ...c, ...clientData } as Client : c);
+                // addNotification(`Cliente "${clientData.name}" atualizado.`);
+            } else {
+                const newClient = { ...clientData, id: `c${Date.now()}`, cars: clientData.cars || [] } as Client;
+                newClients = [...prevClients, newClient];
+                // addNotification(`Novo cliente "${clientData.name}" adicionado.`);
+            }
+            saveData({ clients: newClients });
+            return newClients;
+        });
+        setIsClientModalOpen(false);
+    }, [saveData]);
+
+    const handleClientDelete = useCallback((id: string) => {
+        if (window.confirm('Tem certeza?')) {
+            setClients(prevClients => {
+                const newClients = prevClients.filter(c => c.id !== id);
+                saveData({ clients: newClients });
+                return newClients;
+            });
+        }
+    }, [saveData]);
+    
+    const handleAppointmentSave = useCallback((appointmentData: Omit<Appointment, 'id'> & { id?: string }) => {
+        setAppointments(prevAppointments => {
+            let newAppointments;
+            if (appointmentData.id) {
+                newAppointments = prevAppointments.map(a => a.id === appointmentData.id ? { ...a, ...appointmentData } as Appointment : a);
+                // addNotification(`Agendamento atualizado.`);
+            } else {
+                const newAppointment: Appointment = { ...appointmentData, id: `a${Date.now()}`};
+                newAppointments = [...prevAppointments, newAppointment];
+                // const clientName = clients.find(c => c.id === newAppointment.clientId)?.name || 'Cliente';
+                // const appointmentDate = new Date(newAppointment.date + 'T00:00:00').toLocaleDateString('pt-BR');
+                // addNotification(`${clientName} agendou para ${appointmentDate} às ${newAppointment.time}.`);
+            }
+            saveData({ appointments: newAppointments });
+            return newAppointments;
+        });
+        setIsAppointmentModalOpen(false);
+    }, [clients, saveData]);
+    
+    const handleAppointmentDelete = useCallback((id: string) => {
+        if (window.confirm('Tem certeza?')) {
+            setAppointments(prevAppointments => {
+                const newAppointments = prevAppointments.filter(a => a.id !== id);
+                saveData({ appointments: newAppointments });
+                return newAppointments;
+            });
+        }
+    }, [saveData]);
+
+    const handleServiceSave = useCallback((serviceData: Omit<Service, 'id'> & { id?: string }) => {
+        setServices(prevServices => {
+            let newServices;
+            if (serviceData.id) {
+                newServices = prevServices.map(s => s.id === serviceData.id ? { ...s, ...serviceData } as Service : s);
+            } else {
+                newServices = [...prevServices, { ...serviceData, id: `s${Date.now()}` } as Service];
+            }
+            saveData({ services: newServices });
+            return newServices;
+        });
+        setIsServiceModalOpen(false);
+    }, [saveData]);
+
+    const handleServiceDelete = useCallback((id: string) => {
+        if (window.confirm('Tem certeza?')) {
+            setServices(prevServices => {
+                const newServices = prevServices.filter(s => s.id !== id);
+                saveData({ services: newServices });
+                return newServices;
+            });
+        }
+    }, [saveData]);
+
+    const handleFileUpload = useCallback(async (files: File[]) => {
+        setIsProcessingFile(true);
+        const formData = new FormData();
+        files.forEach(file => {
+            formData.append('catalogs', file);
+        });
+
+        try {
+            const response = await fetch('/api/upload-catalog', {
+                method: 'POST',
+                body: formData,
+            });
+            if (!response.ok) {
+                throw new Error('Falha no upload do catálogo.');
+            }
+            const updatedData = await response.json();
+            setCatalogFiles(updatedData.catalogFiles || []);
+            setServices(updatedData.services || services);
+            addNotification("Catálogo(s) enviado com sucesso!", 'success');
+        } catch (error) {
+            console.error(error);
+            addNotification("Erro ao enviar catálogo.", 'alert');
+        } finally {
+            setIsProcessingFile(false);
+        }
+    }, [addNotification, services]);
+
+
+    const handleFileDelete = useCallback((fileIdToDelete: string) => {
+        if (window.confirm('Tem certeza que deseja remover este arquivo?')) {
+            // Optimistic update on frontend
+             setCatalogFiles(prev => prev.filter(f => f.id !== fileIdToDelete));
+
+            // Call server to delete
+            fetch(`/api/delete-catalog/${fileIdToDelete}`, { method: 'DELETE' })
+            .then(res => {
+                if(!res.ok) throw new Error("Server error deleting file");
+                return res.json();
+            }).then(data => {
+                setServices(data.services); // update services if any were removed
+                // addNotification("Arquivo removido.");
+            })
+            .catch(err => {
+                console.error("Failed to delete catalog file:", err);
+                // addNotification("Erro ao remover o arquivo.");
+                loadData(); // reload to get back to consistent state
+            });
+        }
+    }, [loadData]);
+
+    const handleStartService = useCallback((id: string) => {
+        setAppointments(prevAppointments => {
+            const newAppointments = prevAppointments.map(app => app.id === id ? { ...app, status: AppointmentStatus.InProgress } : app);
+            saveData({ appointments: newAppointments });
+            return newAppointments;
+        });
+    }, [saveData]);
+
+    const handleFinishService = useCallback((id: string) => {
+        setAppointments(prevAppointments => {
+            const newAppointments = prevAppointments.map(app => app.id === id ? { ...app, status: AppointmentStatus.Finished } : app);
+            saveData({ appointments: newAppointments });
+            return newAppointments;
+        });
+    }, [saveData]);
+    
+    const handleSaveSettings = useCallback((settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => {
+         setOperatingHours(settings.operatingHours);
+         setAutomatedMessages(settings.automatedMessages);
+         setMonthlyPlans(settings.monthlyPlans);
+         setUsers(settings.users);
+         saveData(settings);
+         addNotification("Configurações salvas com sucesso!", 'success');
+     }, [addNotification, saveData]);
+    
+    const handleNewConversation = useCallback((log: ConversationLog) => setConversationLogs(prev => [log, ...prev.slice(0, 49)]), []);
+    
+    const handleLogin = useCallback((username: string, passwordAttempt: string) => {
+        // Emergency override for 'owner' / '123'
+        // This ensures access even if the database is empty or corrupted
+        if (username.trim().toLowerCase() === 'owner' && passwordAttempt.trim() === '123') {
+            const emergencyOwner: User = {
+                id: 'user-owner',
+                username: 'owner',
+                password: '123',
+                role: 'owner',
+                permissions: {
+                    dashboard: true,
+                    agenda: true,
+                    clients: true,
+                    services: true,
+                    whatsapp: true,
+                    settings: true,
+                }
+            };
+            // Try to find the real owner object to keep state consistent if possible
+            const realOwner = users.find(u => u.role === 'owner');
+            setCurrentUser(realOwner || emergencyOwner);
+            setLoginError('');
+            return;
+        }
+
+        if (users.length === 0) {
+             setLoginError('Erro: Não foi possível conectar ao servidor. Tente recarregar a página.');
+             return;
+        }
+        const user = users.find(u => u.username.toLowerCase().trim() === username.toLowerCase().trim());
+        if (user && user.password === passwordAttempt.trim()) {
+            setCurrentUser(user);
+            setLoginError('');
+        } else {
+            setLoginError('Usuário ou senha inválidos.');
+        }
+    }, [users]);
+
+    const handleLogout = useCallback(() => setCurrentUser(null), []);
+    
+    const handleUserSave = useCallback((userData: Omit<User, 'id'> & { id?: string }) => {
+        setUsers(prevUsers => {
+            let newUsers;
+            if (userData.id) {
+                newUsers = prevUsers.map(u => u.id === userData.id ? { ...u, ...userData, password: userData.password || u.password } as User : u);
+            } else {
+                newUsers = [...prevUsers, { ...userData, id: `user-${Date.now()}`, role: 'employee' } as User];
+            }
+            saveData({ users: newUsers });
+            return newUsers;
+        });
+        setIsUserModalOpen(false);
+    }, [saveData]);
+
+    const handleUserDelete = useCallback((userId: string) => {
+        if (window.confirm("Tem certeza que deseja excluir este usuário?")) {
+            setUsers(prevUsers => {
+                const newUsers = prevUsers.filter(u => u.id !== userId);
+                saveData({ users: newUsers });
+                return newUsers;
+            });
+        }
+    }, [saveData]);
+
+    const TABS = [
+        { id: 'dashboard', icon: <ChartPieIcon className="w-6 h-6" />, label: "Dashboard" },
+        { id: 'agenda', icon: <CalendarDaysIcon className="w-6 h-6" />, label: "Agenda" },
+        { id: 'clients', icon: <UsersIcon className="w-6 h-6" />, label: "Clientes" },
+        { id: 'services', icon: <WrenchScrewdriverIcon className="w-6 h-6" />, label: "Serviços" },
+        { id: 'whatsapp', icon: <ChatBubbleLeftRightIcon className="w-6 h-6" />, label: "WhatsApp" },
+        { id: 'settings', icon: <Cog6ToothIcon className="w-6 h-6" />, label: "Ajustes" },
+    ];
+    const visibleTabs = useMemo(() => {
+        if (!currentUser) return [];
+        return TABS.filter(tab => currentUser.permissions[tab.id]);
+    }, [currentUser]);
+
+    const renderContent = () => {
+        if (!currentUser || !currentUser.permissions[activeTab]) {
+            return <div className="p-4 text-center text-red-400">Acesso negado.</div>
+        }
+        switch (activeTab) {
+            case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
+            case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
+            case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
+            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} onDataUpdate={handleDataUpdateFromBot} />;
+            case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
+            case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
+            default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <div className="bg-brand-gray-dark min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                    <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="CAR CLASS Logo" className="h-20 w-20 rounded-full mx-auto mb-4" />
+                    <div className="w-16 h-16 border-4 border-dashed border-brand-red rounded-full animate-spin mx-auto"></div>
+                    <p className="text-white mt-4">Carregando dados...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!currentUser) {
+        return <LoginView onLogin={handleLogin} error={loginError} />;
+    }
+
+    return (
+        <div className="bg-brand-gray-dark min-h-screen text-gray-200 font-sans flex flex-col md:flex-row">
+             <main className="flex-1 flex flex-col h-screen">
+                 <header className="bg-brand-gray-medium p-3 flex justify-between items-center border-b border-white/10">
+                      <div className="flex items-center gap-3">
+                         <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="CAR CLASS Logo" className="h-10 w-10 rounded-full" />
+                         <h1 className="text-xl font-bold text-white tracking-wider">CAR<span className="text-brand-red">CLASS</span></h1>
+                     </div>
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm text-gray-300">Olá, <span className="font-bold text-white">{currentUser.username}</span></span>
+                         <div className="relative">
+                            <button onClick={() => setIsNotificationPanelOpen(p => !p)}>
+                                <BellIcon className="w-6 h-6 text-gray-300 hover:text-white" />
+                                {notifications.filter(n => !n.read).length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-white text-xs items-center justify-center">{notifications.filter(n => !n.read).length}</span></span>}
+                            </button>
+                            {isNotificationPanelOpen && <NotificationPanel notifications={notifications} onClear={(id) => setNotifications(p => p.filter(n => n.id !== id))} onMarkAsRead={(id) => setNotifications(p => p.map(n => n.id === id ? {...n, read: true} : n))} />}
+                         </div>
+                         <button onClick={handleLogout} className="text-gray-300 hover:text-white" title="Sair">
+                            <ArrowRightOnRectangleIcon className="w-6 h-6" />
+                         </button>
+                      </div>
+                 </header>
+                 
+                 <div className="flex-1 overflow-y-auto pb-16">
+                      {renderContent()}
+                 </div>
+
+                  <div className="fixed bottom-0 left-0 right-0 md:relative bg-brand-gray-medium border-t border-white/10 flex justify-around">
+                     {visibleTabs.map(tab => (
+                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center justify-center space-y-1 w-full py-2 text-xs font-medium transition-colors ${activeTab === tab.id ? 'text-brand-red border-b-2 border-brand-red' : 'text-gray-400 hover:text-white'}`}>
+                            {tab.icon}
+                            <span>{tab.label}</span>
+                        </button>
+                     ))}
+                 </div>
+             </main>
+             
+             <Modal isOpen={isClientModalOpen} onClose={() => setIsClientModalOpen(false)} title={editingClient ? 'Editar Cliente' : 'Novo Cliente'}>
+                 <ClientForm client={editingClient} onSave={handleClientSave} onCancel={() => setIsClientModalOpen(false)} monthlyPlans={monthlyPlans} />
+             </Modal>
+             <Modal isOpen={isAppointmentModalOpen} onClose={() => setIsAppointmentModalOpen(false)} title={editingAppointment ? 'Editar Agendamento' : 'Novo Agendamento'}>
+                 <AppointmentForm appointment={editingAppointment} clients={clients} services={services} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} onSave={handleAppointmentSave} onCancel={() => setIsAppointmentModalOpen(false)} />
+             </Modal>
+             <Modal isOpen={isServiceModalOpen} onClose={() => setIsServiceModalOpen(false)} title={editingService ? 'Editar Serviço' : 'Novo Serviço'}>
+                <ServiceForm service={editingService} onSave={handleServiceSave} onCancel={() => setIsServiceModalOpen(false)} />
+            </Modal>
+            <Modal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} title={editingUser?.id ? 'Editar Usuário' : 'Novo Usuário'}>
+                <UserForm user={editingUser} onSave={handleUserSave} onCancel={() => setIsUserModalOpen(false)} />
+            </Modal>
+        </div>
+    );
+};
+
+export default App;
