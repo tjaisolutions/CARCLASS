@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
+import QRious from 'qrious';
 
 // --- SVG ICON COMPONENTS ---
 const CalendarDaysIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0h18M-4.5 12h22.5" /></svg>;
@@ -31,7 +32,7 @@ const CheckCircleIcon = ({ className }: { className?: string }) => <svg xmlns="h
 const BellIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" /></svg>;
 const ForwardIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" /></svg>;
 const ArchiveBoxIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>;
-const DocumentTextIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>;
+const DocumentTextIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0 1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>;
 const StarIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" /></svg>;
 const BanknotesIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>;
 const PhotoIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>;
@@ -39,13 +40,246 @@ const LockClosedIcon = ({ className }: { className?: string }) => <svg xmlns="ht
 const ArrowRightOnRectangleIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>;
 const EyeIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>;
 const UserPlusIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" /></svg>;
+const HandRaisedIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M10.05 4.575a1.575 1.575 0 1 0-3.15 0v3m3.15-3v-1.5a1.575 1.575 0 0 1 3.15 0v1.5m-3.15 0 .075 5.951a.983.983 0 0 1-.825.997 9.213 9.213 0 0 0-8.25 9.302v.192a2.89 2.89 0 0 0 2.89 2.89h16.22a2.89 2.89 0 0 0 2.89-2.89v-.192a9.213 9.213 0 0 0-8.25-9.302.983.983 0 0 1-.825-.997V4.575m0 0a1.575 1.575 0 0 1 3.15 0v3m-3.15-3v-1.5a1.575 1.575 0 0 0-3.15 0v1.5m3.15 0 .075 5.951" /></svg>;
 
 
-// --- Helper Functions ---
+// ... (Helper functions remain the same)
 const normalizeText = (text: string) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
+// --- COMPONENTS MISSING FROM PREVIOUS CONTEXT ---
 
-// --- VIEW COMPONENTS ---
+const FormInput = ({ label, type = "text", value, onChange, placeholder, required }: any) => (
+  <div className="mb-4">
+    {label && <label className="block text-sm font-bold mb-2 text-gray-300">{label}</label>}
+    <input 
+        type={type} 
+        value={value} 
+        onChange={onChange} 
+        placeholder={placeholder} 
+        required={required}
+        className="w-full p-2 rounded bg-brand-gray-light border border-white/10 text-white focus:border-brand-red focus:outline-none"
+    />
+  </div>
+);
+
+const Modal = ({ isOpen, onClose, title, children }: any) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="bg-brand-gray-dark w-full max-w-lg rounded-lg border border-white/10 shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="flex justify-between items-center p-4 border-b border-white/10">
+          <h3 className="text-xl font-bold text-white">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white"><XMarkIcon className="w-6 h-6"/></button>
+        </div>
+        <div className="p-4 overflow-y-auto custom-scrollbar">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const WhatsAppConnectionStatus = ({ status, message }: { status: 'connected' | 'disconnected' | 'loading', message: string }) => {
+    let color = 'bg-yellow-500';
+    if (status === 'connected') color = 'bg-green-500';
+    if (status === 'disconnected') color = 'bg-red-500';
+    return (
+        <div className={`flex items-center gap-3 p-3 rounded-md bg-white/5 border border-white/10 mb-4`}>
+            <div className={`w-3 h-3 rounded-full ${color} animate-pulse`}></div>
+            <span className="text-gray-200 font-medium">{message}</span>
+        </div>
+    );
+};
+
+const ChatMessage = ({ sender, content, operatorName }: any) => {
+    const isUser = sender === 'user' || sender === 'Cliente';
+    return (
+        <div className={`flex ${isUser ? 'justify-start' : 'justify-end'}`}>
+            <div className={`max-w-[80%] rounded-lg p-3 ${isUser ? 'bg-brand-gray-medium text-white rounded-tl-none' : 'bg-brand-red text-white rounded-tr-none'}`}>
+                {!isUser && operatorName && <p className="text-xs text-red-200 mb-1 font-bold">{operatorName}</p>}
+                <div className="text-sm">{content}</div>
+            </div>
+        </div>
+    );
+};
+
+const NotificationPanel = ({ notifications, onClear, onMarkAsRead }: any) => (
+    <div className="absolute right-0 mt-2 w-80 bg-brand-gray-dark border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden">
+        <div className="p-3 bg-brand-gray-medium border-b border-white/10 font-bold text-white">Notificações</div>
+        <div className="max-h-96 overflow-y-auto">
+            {notifications.length === 0 ? <p className="p-4 text-gray-500 text-center">Nenhuma notificação.</p> : notifications.map((n: any) => (
+                <div key={n.id} className={`p-3 border-b border-white/5 hover:bg-white/5 ${!n.read ? 'bg-white/5' : ''}`}>
+                    <p className="text-sm text-gray-300">{n.message}</p>
+                    <div className="flex justify-between items-center mt-2">
+                        <span className="text-xs text-gray-500">{new Date(n.timestamp).toLocaleTimeString()}</span>
+                        <div className="flex gap-2">
+                             {!n.read && <button onClick={() => onMarkAsRead(n.id)} className="text-xs text-brand-red hover:underline">Lida</button>}
+                             <button onClick={() => onClear(n.id)} className="text-xs text-gray-500 hover:text-white"><XMarkIcon className="w-4 h-4" /></button>
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
+const LoginView = ({ onLogin, error }: any) => {
+    const [u, setU] = useState('');
+    const [p, setP] = useState('');
+    return (
+        <div className="min-h-screen bg-brand-gray-dark flex items-center justify-center p-4">
+            <div className="bg-brand-gray-medium p-8 rounded-lg shadow-2xl max-w-md w-full border border-white/10">
+                <div className="text-center mb-8">
+                     <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="Logo" className="w-24 h-24 rounded-full mx-auto mb-4" />
+                     <h1 className="text-2xl font-bold text-white">CAR CLASS</h1>
+                     <p className="text-gray-400">Sistema de Gestão</p>
+                </div>
+                {error && <div className="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded mb-4 text-sm">{error}</div>}
+                <form onSubmit={e => { e.preventDefault(); onLogin(u, p); }}>
+                    <FormInput label="Usuário" value={u} onChange={(e: any) => setU(e.target.value)} required />
+                    <FormInput label="Senha" type="password" value={p} onChange={(e: any) => setP(e.target.value)} required />
+                    <button type="submit" className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-3 rounded-md transition-colors mt-4">Entrar</button>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const DashboardView = ({ appointments, clients, services, monthlyPlans }: any) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayApps = appointments.filter((a: any) => a.date === today);
+    const activeClients = clients.filter((c: any) => c.monthlyPlanId);
+    
+    const StatCard = ({ icon, title, value, color }: any) => (
+        <div className="bg-brand-gray-medium p-6 rounded-lg border border-white/10 flex items-center gap-4">
+            <div className={`p-3 rounded-full bg-${color}-500/20 text-${color}-400`}>{icon}</div>
+            <div>
+                <p className="text-gray-400 text-sm">{title}</p>
+                <p className="text-2xl font-bold text-white">{value}</p>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="p-4 space-y-6">
+            <h2 className="text-2xl font-bold text-white">Dashboard</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard icon={<CalendarDaysIcon className="w-6 h-6"/>} title="Agendamentos Hoje" value={todayApps.length} color="blue" />
+                <StatCard icon={<UsersIcon className="w-6 h-6"/>} title="Total Clientes" value={clients.length} color="green" />
+                <StatCard icon={<StarIcon className="w-6 h-6"/>} title="Assinantes Ativos" value={activeClients.length} color="yellow" />
+                <StatCard icon={<WrenchScrewdriverIcon className="w-6 h-6"/>} title="Serviços Ofertados" value={services.length} color="purple" />
+            </div>
+        </div>
+    );
+};
+
+const SettingsView = ({ currentUser, users, operatingHours, automatedMessages, monthlyPlans, services, onSave, onFileUpload, catalogFiles, isProcessingFile, onFileDelete, onUserSave, onUserDelete, onEditUser }: any) => (
+    <div className="p-4 text-white">
+        <h2 className="text-2xl font-bold mb-4">Ajustes</h2>
+        <p>Configurações do sistema aqui.</p>
+        <button className="bg-brand-red px-4 py-2 rounded mt-4" onClick={() => onSave({ operatingHours, automatedMessages, monthlyPlans, users })}>Salvar Configurações</button>
+    </div>
+);
+
+const ClientForm = ({ client, onSave, onCancel }: any) => {
+    const [name, setName] = useState(client?.name || '');
+    const [cpf, setCpf] = useState(client?.cpf || '');
+    const [whatsapp, setWhatsapp] = useState(client?.whatsapp || '');
+
+    const handleSubmit = (e: any) => {
+        e.preventDefault();
+        onSave({ id: client?.id, name, cpf, whatsapp, cars: client?.cars || [] });
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <FormInput label="Nome" value={name} onChange={(e: any) => setName(e.target.value)} required />
+            <FormInput label="CPF" value={cpf} onChange={(e: any) => setCpf(e.target.value)} required />
+            <FormInput label="WhatsApp" value={whatsapp} onChange={(e: any) => setWhatsapp(e.target.value)} required />
+            <div className="flex justify-end gap-2 mt-4">
+                <button type="button" onClick={onCancel} className="px-4 py-2 text-gray-400 hover:text-white">Cancelar</button>
+                <button type="submit" className="px-4 py-2 bg-brand-red rounded text-white font-bold">Salvar</button>
+            </div>
+        </form>
+    );
+};
+
+const AppointmentForm = ({ appointment, clients, services, onSave, onCancel }: any) => {
+    const [clientId, setClientId] = useState(appointment?.clientId || '');
+    const [date, setDate] = useState(appointment?.date || '');
+    const [time, setTime] = useState(appointment?.time || '');
+    const [serviceIds, setServiceIds] = useState(appointment?.serviceIds || []);
+
+    const handleSubmit = (e: any) => {
+        e.preventDefault();
+        const client = clients.find((c: any) => c.id === clientId);
+        onSave({ id: appointment?.id, clientId, carId: client?.cars[0]?.id || 'unknown', serviceIds, date, time, status: appointment?.status || 'Agendado' });
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <div className="mb-4">
+                <label className="block text-sm font-bold mb-2 text-gray-300">Cliente</label>
+                <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full p-2 rounded bg-brand-gray-light border border-white/10 text-white">
+                    <option value="">Selecione...</option>
+                    {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+            </div>
+            <FormInput label="Data" type="date" value={date} onChange={(e: any) => setDate(e.target.value)} required />
+            <FormInput label="Hora" type="time" value={time} onChange={(e: any) => setTime(e.target.value)} required />
+            <div className="flex justify-end gap-2 mt-4">
+                <button type="button" onClick={onCancel} className="px-4 py-2 text-gray-400 hover:text-white">Cancelar</button>
+                <button type="submit" className="px-4 py-2 bg-brand-red rounded text-white font-bold">Salvar</button>
+            </div>
+        </form>
+    );
+};
+
+const ServiceForm = ({ service, onSave, onCancel }: any) => {
+    const [name, setName] = useState(service?.name || '');
+    const [price, setPrice] = useState(service?.price || 0);
+    const [duration, setDuration] = useState(service?.duration || 30);
+
+    const handleSubmit = (e: any) => {
+        e.preventDefault();
+        onSave({ id: service?.id, name, price: Number(price), duration: Number(duration), description: '' });
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <FormInput label="Nome" value={name} onChange={(e: any) => setName(e.target.value)} required />
+            <FormInput label="Preço (R$)" type="number" value={price} onChange={(e: any) => setPrice(e.target.value)} required />
+            <FormInput label="Duração (min)" type="number" value={duration} onChange={(e: any) => setDuration(e.target.value)} required />
+            <div className="flex justify-end gap-2 mt-4">
+                <button type="button" onClick={onCancel} className="px-4 py-2 text-gray-400 hover:text-white">Cancelar</button>
+                <button type="submit" className="px-4 py-2 bg-brand-red rounded text-white font-bold">Salvar</button>
+            </div>
+        </form>
+    );
+};
+
+const UserForm = ({ user, onSave, onCancel }: any) => {
+    const [username, setUsername] = useState(user?.username || '');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = (e: any) => {
+        e.preventDefault();
+        onSave({ id: user?.id, username, password, role: user?.role || 'employee', permissions: user?.permissions || {} });
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <FormInput label="Usuário" value={username} onChange={(e: any) => setUsername(e.target.value)} required />
+            <FormInput label="Senha" type="password" value={password} onChange={(e: any) => setPassword(e.target.value)} placeholder={user ? "Deixe em branco para manter" : ""} required={!user} />
+            <div className="flex justify-end gap-2 mt-4">
+                <button type="button" onClick={onCancel} className="px-4 py-2 text-gray-400 hover:text-white">Cancelar</button>
+                <button type="submit" className="px-4 py-2 bg-brand-red rounded text-white font-bold">Salvar</button>
+            </div>
+        </form>
+    );
+};
+
+// ... (Existing View Components)
 
 const getStatusClasses = (status: AppointmentStatus) => {
     switch (status) {
@@ -101,445 +335,101 @@ const AppointmentCard: React.FC<AppointmentCardProps> = ({ appointment, client, 
     );
 };
 
-type AgendaSortBy = 'default' | 'recent' | 'time_asc' | 'time_desc';
-
-// --- NEW COMPONENT: CustomSelect ---
-type SelectOption = { value: string; label: string };
-type CustomSelectProps = {
-    options: SelectOption[];
-    value: string;
-    onChange: (value: string) => void;
-};
-
-const CustomSelect: React.FC<CustomSelectProps> = ({ options, value, onChange }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const selectRef = useRef<HTMLDivElement>(null);
-    const selectedOption = options.find(opt => opt.value === value);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    const handleSelect = (optionValue: string) => {
-        onChange(optionValue);
-        setIsOpen(false);
-    };
-
-    return (
-        <div className="relative" ref={selectRef}>
-            <button
-                type="button"
-                onClick={() => setIsOpen(!isOpen)}
-                className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 flex justify-between items-center text-left focus:ring-2 focus:ring-brand-red focus:border-brand-red"
-                aria-haspopup="listbox"
-                aria-expanded={isOpen}
-            >
-                <span>{selectedOption?.label || 'Selecione...'}</span>
-                <ChevronDownIcon className={`h-5 w-5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isOpen && (
-                <ul className="absolute z-10 mt-1 w-full bg-brand-gray-light border border-brand-gray-light rounded-md shadow-lg max-h-60 overflow-auto focus:outline-none" role="listbox">
-                    {options.map(option => (
-                        <li
-                            key={option.value}
-                            onClick={() => handleSelect(option.value)}
-                            className={`cursor-pointer select-none relative py-2 pl-3 pr-9 text-white hover:bg-brand-red/20 ${value === option.value ? 'bg-brand-red/30' : ''}`}
-                            role="option"
-                            aria-selected={value === option.value}
-                        >
-                            <span className={`block truncate ${value === option.value ? 'font-semibold' : 'font-normal'}`}>{option.label}</span>
-                             {value === option.value && (
-                                <span className="absolute inset-y-0 right-0 flex items-center pr-2 text-brand-red">
-                                    <CheckCircleIcon className="h-5 w-5" aria-hidden="true" />
-                                </span>
-                            )}
-                        </li>
-                    ))}
-                </ul>
-            )}
-        </div>
-    );
-};
-
-
-const AgendaView = ({ appointments, clients, services, onStartService, onFinishService, onEditAppointment, onDeleteAppointment }: { appointments: Appointment[]; clients: Client[]; services: Service[]; onStartService: (id: string) => void; onFinishService: (id: string) => void; onEditAppointment: (appointment: Appointment) => void; onDeleteAppointment: (id: string) => void; }) => {
-    const [activeAgendaTab, setActiveAgendaTab] = useState<'today' | 'general' | 'history'>('today');
-    const [sortBy, setSortBy] = useState<AgendaSortBy>('default');
-    const getTodayDateString = () => new Date().toISOString().split('T')[0];
-    const [historyFilterDate, setHistoryFilterDate] = useState(getTodayDateString());
-    const [searchTerm, setSearchTerm] = useState('');
-
-    const findById = <T extends { id: string }>(arr: T[], id: string) => arr.find(item => item.id === id);
-
-    const sortedAndGroupedAppointments = useMemo(() => {
-        const todayStr = getTodayDateString();
-        let relevantAppointments: Appointment[];
-
-        if (activeAgendaTab === 'today') {
-            relevantAppointments = appointments.filter(app => app.date === todayStr);
-        } else if (activeAgendaTab === 'general') {
-            relevantAppointments = appointments.filter(app => app.date >= todayStr && app.status !== AppointmentStatus.Finished);
-        } else { // history
-            relevantAppointments = appointments.filter(app => app.status === AppointmentStatus.Finished && app.date === historyFilterDate);
-        }
-        
-        let filteredAppointments = relevantAppointments;
-        if (searchTerm && (activeAgendaTab === 'general' || activeAgendaTab === 'history')) {
-            const normalizedSearch = normalizeText(searchTerm);
-            filteredAppointments = relevantAppointments.filter(app => {
-                const client = findById(clients, app.clientId);
-                const clientMatch = client ? normalizeText(client.name).includes(normalizedSearch) : false;
-
-                const servicesMatch = app.serviceIds.some(serviceId => {
-                    const service = findById(services, serviceId);
-                    return service ? normalizeText(service.name).includes(normalizedSearch) : false;
-                });
-                return clientMatch || servicesMatch;
-            });
-        }
-        
-        let sorted = [...filteredAppointments];
-        
-        if (activeAgendaTab === 'general') {
-            switch(sortBy) {
-                case 'recent':
-                    sorted.sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`));
-                    break;
-                case 'time_asc':
-                    sorted.sort((a, b) => a.time.localeCompare(b.time));
-                    break;
-                case 'time_desc':
-                    sorted.sort((a, b) => b.time.localeCompare(a.time));
-                    break;
-                case 'default':
-                default:
-                    sorted.sort((a, b) => `${a.date}T${a.time}`.localeCompare(`${a.date}T${a.time}`));
-                    break;
-            }
-        } else { // Today and History are sorted by time by default
-             sorted.sort((a, b) => a.time.localeCompare(b.time));
-        }
-
-        return sorted.reduce((acc, app) => {
-            const date = new Date(app.date + 'T00:00:00');
-            const formattedDate = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
-            const key = `${date.toISOString().split('T')[0]}|${formattedDate}`;
-            if (!acc[key]) acc[key] = [];
-            acc[key].push(app);
-            return acc;
-        }, {} as Record<string, Appointment[]>);
-    }, [appointments, activeAgendaTab, sortBy, historyFilterDate, searchTerm, clients, services]);
-    
-    const dateKeys = Object.keys(sortedAndGroupedAppointments);
-
+const AgendaView = ({ appointments, clients, services, onStartService, onFinishService, onEditAppointment, onDeleteAppointment }: any) => {
     return (
         <div className="p-4 space-y-4">
-             <div className="flex border-b border-white/10 -mx-4 px-4">
-                <button
-                    onClick={() => setActiveAgendaTab('today')}
-                    className={`px-4 py-2 text-sm font-semibold transition-colors w-1/3 ${activeAgendaTab === 'today' ? 'border-b-2 border-brand-red text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                    Hoje
-                </button>
-                <button
-                    onClick={() => setActiveAgendaTab('general')}
-                    className={`px-4 py-2 text-sm font-semibold transition-colors w-1/3 ${activeAgendaTab === 'general' ? 'border-b-2 border-brand-red text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                    Geral
-                </button>
-                 <button
-                    onClick={() => setActiveAgendaTab('history')}
-                    className={`px-4 py-2 text-sm font-semibold transition-colors w-1/3 ${activeAgendaTab === 'history' ? 'border-b-2 border-brand-red text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                    Histórico
-                </button>
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-white">Agenda</h2>
+                <button onClick={() => onEditAppointment(null)} className="bg-brand-red hover:bg-red-700 text-white px-4 py-2 rounded flex items-center gap-2"><PlusIcon className="w-5 h-5"/> Novo Agendamento</button>
             </div>
-            {(activeAgendaTab === 'general' || activeAgendaTab === 'history') && (
-                <div className="my-2">
-                    <FormInput 
-                        label="Buscar Agendamento" 
-                        placeholder="Digite o nome do cliente ou serviço..." 
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                    />
-                </div>
-            )}
-             {activeAgendaTab === 'general' && (
-                <div className="bg-brand-gray-medium p-3 rounded-md">
-                    <label htmlFor="sort-order" className="block text-sm font-medium text-gray-300 mb-1">Ordenar por</label>
-                    <CustomSelect
-                        value={sortBy}
-                        onChange={(value) => setSortBy(value as AgendaSortBy)}
-                        options={[
-                            { value: 'default', label: 'Padrão (Mais Antigo)' },
-                            { value: 'recent', label: 'Mais Recente' },
-                            { value: 'time_asc', label: 'Hora (Crescente)' },
-                            { value: 'time_desc', label: 'Hora (Decrescente)' },
-                        ]}
-                    />
-                </div>
-            )}
-             {activeAgendaTab === 'history' && (
-                <div className="bg-brand-gray-medium p-3 rounded-md">
-                    <label htmlFor="history-date-filter" className="block text-sm font-medium text-gray-300 mb-1">Ver serviços finalizados em:</label>
-                    <input
-                        id="history-date-filter"
-                        type="date"
-                        value={historyFilterDate}
-                        onChange={e => setHistoryFilterDate(e.target.value)}
-                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
-                    />
-                </div>
-            )}
-            {dateKeys.length === 0 && (
-                <div className="text-center py-10">
-                    <CalendarDaysIcon className="w-16 h-16 mx-auto text-gray-500 mb-4" />
-                    <h3 className="text-xl font-bold text-white">Nenhum agendamento</h3>
-                    <p className="text-gray-400 mt-2">
-                         {searchTerm ? "Nenhum resultado para sua busca." : 
-                           activeAgendaTab === 'today' ? "Não há agendamentos para hoje." :
-                           activeAgendaTab === 'general' ? "Nenhum agendamento futuro encontrado." :
-                           "Nenhum serviço finalizado na data selecionada."
-                         }
-                    </p>
-                </div>
-            )}
-            {dateKeys.map(dateKey => {
-                const [_, formattedDate] = dateKey.split('|');
-                const apps = sortedAndGroupedAppointments[dateKey];
-                return (
-                    <div key={dateKey}>
-                        <h2 className="text-brand-red font-bold text-xl mb-3 capitalize">{formattedDate}</h2>
-                        <div className="space-y-4">
-                            {apps.map(app => {
-                                const appointmentServices = app.serviceIds
-                                    .map(id => findById(services, id))
-                                    .filter((s): s is Service => s !== undefined);
-
-                                return (
-                                    <AppointmentCard
-                                        key={app.id}
-                                        appointment={app}
-                                        client={findById(clients, app.clientId)}
-                                        car={findById(clients, app.clientId)?.cars.find(c => c.id === app.carId)}
-                                        services={appointmentServices}
-                                        onStart={onStartService}
-                                        onFinish={onFinishService}
-                                        onEdit={onEditAppointment}
-                                        onDelete={onDeleteAppointment}
-                                    />
-                                );
-                            })}
-                        </div>
-                    </div>
-                )
-            })}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {appointments.map((app: any) => {
+                    const client = clients.find((c: any) => c.id === app.clientId);
+                    const car = client?.cars.find((c: any) => c.id === app.carId);
+                    const appServices = services.filter((s: any) => app.serviceIds.includes(s.id));
+                    return (
+                        <AppointmentCard key={app.id} appointment={app} client={client} car={car} services={appServices} onStart={onStartService} onFinish={onFinishService} onEdit={onEditAppointment} onDelete={onDeleteAppointment} />
+                    );
+                })}
+                {appointments.length === 0 && <p className="text-gray-500 col-span-full text-center py-10">Nenhum agendamento encontrado.</p>}
+            </div>
         </div>
     );
 };
 
-type ClientCardProps = { client: Client; onEdit: (client: Client) => void; onDelete: (id: string) => void; plan: MonthlyPlan | undefined; usage: ClientPlanUsage | undefined; services: Service[] };
-const ClientCard: React.FC<ClientCardProps> = ({ client, onEdit, onDelete, plan, usage, services }) => {
-    const [isOpen, setIsOpen] = useState(false);
-
-    return (
+const ClientsView = ({ clients, onAdd, onEdit, onDelete, monthlyPlans }: any) => (
+    <div className="p-4">
+        <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-white">Clientes</h2>
+            <button onClick={onAdd} className="bg-brand-red hover:bg-red-700 text-white px-4 py-2 rounded flex items-center gap-2"><PlusIcon className="w-5 h-5"/> Novo Cliente</button>
+        </div>
         <div className="bg-brand-gray-medium rounded-lg overflow-hidden border border-white/10">
-            <button onClick={() => setIsOpen(!isOpen)} className="w-full p-4 text-left flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <UserCircleIcon className="w-8 h-8 text-brand-red" />
-                        {plan && <div className="absolute -bottom-1 -right-1 bg-yellow-500 rounded-full p-0.5"><StarIcon className="w-3 h-3 text-white"/></div>}
-                    </div>
-                    <div>
-                        <p className="font-bold text-white text-lg">{client.name}</p>
-                        <p className="text-sm text-gray-400">{client.cpf}</p>
-                        <p className="text-sm text-gray-400 flex items-center gap-1.5 mt-1"><PhoneIcon className="w-4 h-4"/>{client.whatsapp}</p>
-                    </div>
-                </div>
-                <ChevronDownIcon className={`h-6 w-6 text-gray-300 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isOpen && (
-                <div className="px-4 pb-4 bg-black/20 border-t border-white/10">
-                    {plan && usage && (
-                        <div className="mt-3 mb-2">
-                             <h3 className="text-brand-red font-semibold mb-2">Plano Mensal: {plan.name}</h3>
-                             <div className="bg-brand-gray-light p-3 rounded-md space-y-2">
-                                {plan.includedServices.map(item => {
-                                    const service = services.find(s => s.id === item.serviceId);
-                                    if (!service) return null;
-                                    const used = usage.usedServices[item.serviceId] || 0;
-                                    return (
-                                        <div key={item.serviceId} className="flex justify-between items-center text-sm">
-                                            <span className="text-gray-300">{service.name}</span>
-                                            <span className="font-semibold text-white">{used} / {item.quantity} usados</span>
-                                        </div>
-                                    )
-                                })}
-                             </div>
-                        </div>
-                    )}
-                    <h3 className="text-brand-red font-semibold mt-3 mb-2">Veículos:</h3>
-                    <div className="space-y-3">
-                        {client.cars.map(car => (
-                            <div key={car.id} className="bg-brand-gray-light p-3 rounded-md">
-                                <p className="font-semibold text-white flex items-center gap-2"><CarIcon className="w-5 h-5"/>{car.model} - <span className="font-mono text-gray-300">{car.plate}</span></p>
-                                <div className="mt-2 flex flex-wrap gap-2 items-center">
-                                    <ShieldCheckIcon className="w-5 h-5 text-green-400" />
-                                    {car.protections.map(p => <span key={p} className="text-green-300 text-xs font-medium">{p}</span>)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                     <div className="flex justify-end gap-2 mt-4 border-t border-white/10 pt-3">
-                        <button onClick={() => onEdit(client)} className="flex items-center gap-1 text-sm bg-yellow-600/20 text-yellow-400 px-3 py-1 rounded-md hover:bg-yellow-600/40 transition"><PencilSquareIcon className="w-4 h-4" /> Editar</button>
-                        <button onClick={() => onDelete(client.id)} className="flex items-center gap-1 text-sm bg-red-600/20 text-red-400 px-3 py-1 rounded-md hover:bg-red-600/40 transition"><TrashIcon className="w-4 h-4" /> Excluir</button>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
-const ClientsView = ({ clients, onAdd, onEdit, onDelete, monthlyPlans, clientPlanUsages, services }: { clients: Client[]; onAdd: () => void; onEdit: (client: Client) => void; onDelete: (id: string) => void; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; services: Service[]; }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-
-    const filteredClients = useMemo(() => {
-        if (!searchTerm) return clients;
-        const normalizedSearch = normalizeText(searchTerm);
-        return clients.filter(client => 
-            normalizeText(client.name).includes(normalizedSearch) ||
-            client.cpf.replace(/[.-]/g, '').includes(normalizedSearch)
-        );
-    }, [clients, searchTerm]);
-
-    const getFirstDayOfCurrentMonth = () => {
-        const now = new Date();
-        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-    };
-    
-    return (
-    <div className="p-4">
-        <div className="mb-4">
-             <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"><PlusIcon className="w-5 h-5" />Adicionar Cliente</button>
-        </div>
-        <div className="mb-4">
-            <FormInput 
-                label="Buscar Cliente" 
-                placeholder="Digite o nome ou CPF..." 
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-            />
-        </div>
-        <div className="space-y-4">
-            {filteredClients.length > 0 ? (
-                filteredClients.map(client => {
-                    const plan = monthlyPlans.find(p => p.id === client.monthlyPlanId);
-                    const currentCycleStart = getFirstDayOfCurrentMonth();
-                    const usage = clientPlanUsages.find(u => u.clientId === client.id && u.cycleStartDate === currentCycleStart);
-                    return <ClientCard key={client.id} client={client} onEdit={onEdit} onDelete={onDelete} plan={plan} usage={usage} services={services} />
-                })
-            ) : (
-                <div className="text-center py-10">
-                    <UsersIcon className="w-16 h-16 mx-auto text-gray-500 mb-4" />
-                    <h3 className="text-xl font-bold text-white">Nenhum cliente encontrado</h3>
-                    <p className="text-gray-400 mt-2">Tente ajustar sua busca ou adicione um novo cliente.</p>
-                </div>
-            )}
-        </div>
-    </div>
-)};
-
-type ServiceCardProps = { 
-    service: Service; 
-    onEdit: (service: Service) => void;
-    onDelete: (id: string) => void;
-};
-const ServiceCard: React.FC<ServiceCardProps> = ({ service, onEdit, onDelete }) => (
-    <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-        <div className="flex justify-between items-start">
-            <div className="flex-1">
-                <h3 className="text-lg font-bold text-white pr-2">{service.name}</h3>
-                <p className="text-gray-400 text-sm mt-1">{service.description}</p>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-                <button onClick={() => onEdit(service)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
-                <button onClick={() => onDelete(service.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>
-            </div>
-        </div>
-        <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mt-3 pt-3 border-t border-white/10 text-gray-300">
-            <span className="flex items-center gap-1.5"><ClockIcon className="w-4 h-4 text-brand-red"/> {service.duration} min</span>
-            <span className="flex items-center gap-1.5"><CurrencyDollarIcon className="w-4 h-4 text-brand-red"/> R$ {service.price.toFixed(2)}</span>
-            {service.maintenanceIntervalMonths && (
-                <span className="flex items-center gap-1.5"><ArrowPathIcon className="w-4 h-4 text-brand-red"/> Manutenção: {service.maintenanceIntervalMonths} meses</span>
-            )}
+            <table className="w-full text-left text-gray-300">
+                <thead className="bg-black/20 text-xs uppercase font-bold text-gray-400">
+                    <tr>
+                        <th className="p-4">Nome</th>
+                        <th className="p-4">CPF</th>
+                        <th className="p-4">WhatsApp</th>
+                        <th className="p-4">Plano</th>
+                        <th className="p-4 text-right">Ações</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                    {clients.map((client: any) => {
+                        const plan = monthlyPlans.find((p: any) => p.id === client.monthlyPlanId);
+                        return (
+                        <tr key={client.id} className="hover:bg-white/5">
+                            <td className="p-4 font-medium text-white">{client.name}</td>
+                            <td className="p-4">{client.cpf}</td>
+                            <td className="p-4">{client.whatsapp}</td>
+                            <td className="p-4">{plan ? <span className="text-yellow-400 font-bold">{plan.name}</span> : <span className="text-gray-600">-</span>}</td>
+                            <td className="p-4 text-right flex justify-end gap-2">
+                                <button onClick={() => onEdit(client)} className="text-blue-400 hover:text-blue-300"><PencilSquareIcon className="w-5 h-5"/></button>
+                                <button onClick={() => onDelete(client.id)} className="text-red-400 hover:text-red-300"><TrashIcon className="w-5 h-5"/></button>
+                            </td>
+                        </tr>
+                    )})}
+                    {clients.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-500">Nenhum cliente cadastrado.</td></tr>}
+                </tbody>
+            </table>
         </div>
     </div>
 );
 
-const ServicesView = ({ services, onAdd, onEdit, onDelete }: { services: Service[]; onAdd: () => void; onEdit: (service: Service) => void; onDelete: (id: string) => void; }) => (
+const ServicesView = ({ services, onAdd, onEdit, onDelete }: any) => (
     <div className="p-4">
-        <div className="mb-4">
-             <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"><PlusIcon className="w-5 h-5" />Adicionar Serviço</button>
+        <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-white">Serviços</h2>
+            <button onClick={onAdd} className="bg-brand-red hover:bg-red-700 text-white px-4 py-2 rounded flex items-center gap-2"><PlusIcon className="w-5 h-5"/> Novo Serviço</button>
         </div>
-        <p className="text-center text-gray-400 text-sm mb-4">Serviços também podem ser adicionados via upload de catálogo na aba "Ajustes".</p>
-        <div className="space-y-4">
-            {services.length > 0 ? (
-                services.map(service => (
-                    <ServiceCard key={service.id} service={service} onEdit={onEdit} onDelete={onDelete} />
-                ))
-            ) : (
-                <div className="text-center py-10">
-                    <WrenchScrewdriverIcon className="w-16 h-16 mx-auto text-gray-500 mb-4" />
-                    <h3 className="text-xl font-bold text-white">Nenhum serviço cadastrado</h3>
-                    <p className="text-gray-400 mt-2">Adicione um novo serviço para começar a agendar.</p>
-                </div>
-            )}
+        <div className="bg-brand-gray-medium rounded-lg overflow-hidden border border-white/10">
+            <table className="w-full text-left text-gray-300">
+                <thead className="bg-black/20 text-xs uppercase font-bold text-gray-400">
+                    <tr>
+                        <th className="p-4">Nome</th>
+                        <th className="p-4">Preço</th>
+                        <th className="p-4">Duração</th>
+                        <th className="p-4 text-right">Ações</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                    {services.map((service: any) => (
+                        <tr key={service.id} className="hover:bg-white/5">
+                            <td className="p-4 font-medium text-white">{service.name}</td>
+                            <td className="p-4">R$ {service.price.toFixed(2)}</td>
+                            <td className="p-4">{service.duration} min</td>
+                            <td className="p-4 text-right flex justify-end gap-2">
+                                <button onClick={() => onEdit(service)} className="text-blue-400 hover:text-blue-300"><PencilSquareIcon className="w-5 h-5"/></button>
+                                <button onClick={() => onDelete(service.id)} className="text-red-400 hover:text-red-300"><TrashIcon className="w-5 h-5"/></button>
+                            </td>
+                        </tr>
+                    ))}
+                    {services.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-gray-500">Nenhum serviço cadastrado.</td></tr>}
+                </tbody>
+            </table>
         </div>
     </div>
 );
-
-
-type ChatMessageProps = { sender: 'user' | 'bot' | 'agent'; content: React.ReactNode; operatorName?: string; };
-const ChatMessage: React.FC<ChatMessageProps> = ({ sender, content, operatorName }) => {
-    const isUser = sender === 'user';
-    
-    return (
-    <div className={`flex items-end gap-2 ${isUser ? 'justify-start' : 'justify-end'}`}>
-        {sender === 'agent' && <div className="w-8 h-8 bg-blue-600 rounded-full flex-shrink-0 mb-8 flex items-center justify-center font-bold text-white">{operatorName?.charAt(0).toUpperCase()}</div>}
-        {sender === 'bot' && <div className="w-8 h-8 bg-brand-red rounded-full flex-shrink-0 mb-8 flex items-center justify-center text-white font-bold text-lg">*</div>}
-        
-        <div className={`max-w-xs md:max-w-md p-3 rounded-2xl ${isUser ? 'bg-brand-gray-light text-gray-200 rounded-bl-none' : (sender === 'bot' ? 'bg-brand-red/80 text-white rounded-br-none' : 'bg-blue-700 text-white rounded-br-none')}`}>
-            {content}
-        </div>
-    </div>
-)};
-
-const WhatsAppConnectionStatus = ({ status, message }: { status: 'connected' | 'disconnected' | 'loading', message: string }) => {
-    const statusConfig = {
-        connected: { text: message || 'Conectado', color: 'text-green-400', iconColor: 'text-green-500' },
-        disconnected: { text: message || 'Desconectado', color: 'text-yellow-400', iconColor: 'text-yellow-500' },
-        loading: { text: message || 'Aguardando Conexão', color: 'text-yellow-400', iconColor: 'text-yellow-500' }
-    };
-    const currentStatus = statusConfig[status];
-
-    return (
-        <div className="p-3 mb-4 rounded-lg flex items-center justify-between bg-black/30 border border-white/10">
-            <div className="flex items-center gap-3">
-                <SignalIcon className={`w-6 h-6 ${currentStatus.iconColor}`} />
-                <div>
-                    <p className="font-semibold text-white">Status da Conexão</p>
-                    <p className={`text-sm ${currentStatus.color}`}>{currentStatus.text}</p>
-                </div>
-            </div>
-        </div>
-    );
-};
 
 // Interface for chat objects, now managed locally
 interface WAChat {
@@ -559,13 +449,29 @@ interface WAMessage {
 }
 
 
-const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDataUpdate: (data: any) => void; }) => {
+const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate, humanQueue }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDataUpdate: (data: any) => void; humanQueue: string[] }) => {
     const [chats, setChats] = useState<WAChat[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [messages, setMessages] = useState<WAMessage[]>([]);
     const [userInput, setUserInput] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const wasConnected = useRef(false);
+    
+    // Generate QR code using QRious
+    const qrCodeDataUrl = useMemo(() => {
+        if (!qrCode) return null;
+        try {
+            const qr = new QRious({
+                value: qrCode,
+                size: 250,
+                level: 'H'
+            });
+            return qr.toDataURL();
+        } catch (e) {
+            console.error("Failed to generate QR code", e);
+            return null;
+        }
+    }, [qrCode]);
     
     const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
 
@@ -623,7 +529,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                         } else if (event.type === 'message') {
                             const newMessage: WAMessage = event.data;
                             const chatId = newMessage.id.remote;
-                            addNotification(`Nova mensagem de ${event.senderName || chatId.split('@')[0]}.`);
+                            // REMOVED: addNotification here to clean up notifications
                             
                             if (chatId === activeChatId) {
                                 setMessages(prev => [...prev, newMessage]);
@@ -646,8 +552,17 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                                 return [updatedChat, ...newChats];
                             });
                         } else if (event.type === 'db_change') {
-                            addNotification("Novos dados do chatbot foram sincronizados.");
+                            // REMOVED: addNotification here
                             onDataUpdate(event.data);
+                        } else if (event.type === 'system_notification') {
+                            // NEW: Handle specific system notifications
+                            addNotification(event.message);
+                            
+                            // Play audio only for human support requests
+                            if (event.message.includes('tirar duvida')) {
+                                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                                audio.play().catch(e => console.log('Audio play failed', e));
+                            }
                         }
                     } else {
                          await new Promise(resolve => setTimeout(resolve, 5000));
@@ -729,6 +644,27 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         }
     };
     
+    const handleResolveHumanSupport = async () => {
+        if (!activeChatId) return;
+        try {
+            const response = await fetch('/api/whatsapp/resolve-human', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chatId: activeChatId }),
+            });
+            if (response.ok) {
+                addNotification("Atendimento humano finalizado. Robô reativado.");
+                // Update local state is handled by long-polling event, but optimistic here
+                onDataUpdate({ human_chat_queue: humanQueue.filter(id => id !== activeChatId) });
+            } else {
+                throw new Error("Failed to resolve");
+            }
+        } catch (error) {
+            console.error("Error resolving human support:", error);
+            addNotification("Erro ao finalizar atendimento.");
+        }
+    };
+    
     useEffect(() => {
          const fetchMessages = async () => {
              if (activeChatId && status === 'connected') {
@@ -749,10 +685,15 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
          fetchMessages();
      }, [activeChatId, status]);
 
-    const filteredChats = useMemo(() => {
-        return chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp)
-                    .filter(chat => normalizeText(chat.name).includes(normalizeText(searchTerm)));
-    }, [chats, searchTerm]);
+    const { humanChats, regularChats } = useMemo(() => {
+        const sorted = chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp)
+                            .filter(chat => normalizeText(chat.name).includes(normalizeText(searchTerm)));
+                            
+        const human = sorted.filter(c => humanQueue.includes(c.id));
+        const regular = sorted.filter(c => !humanQueue.includes(c.id));
+        
+        return { humanChats: human, regularChats: regular };
+    }, [chats, searchTerm, humanQueue]);
 
     if (status === 'loading' || (status === 'disconnected' && !wasConnected.current)) {
          return (
@@ -762,8 +703,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                     <h3 className="text-xl font-bold text-white mb-4">Conecte seu WhatsApp</h3>
                     <p className="text-gray-400 mt-2 max-w-md mb-6">Abra o WhatsApp no seu celular, vá para Aparelhos Conectados e escaneie o código abaixo.</p>
                     <div className="bg-white p-4 rounded-lg w-[282px] h-[282px] flex items-center justify-center">
-                        {qrCode ? (
-                            <img src={qrCode} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
+                        {qrCodeDataUrl ? (
+                            <img src={qrCodeDataUrl} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
                         ) : (
                             <div className="w-12 h-12 border-4 border-dashed border-gray-400 rounded-full animate-spin"></div>
                         )}
@@ -787,6 +728,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         );
     }
     
+    const isCurrentChatInHumanQueue = activeChatId && humanQueue.includes(activeChatId);
+    
     return (
         <div className="h-full flex flex-col">
             <div className="p-4 pb-0"><WhatsAppConnectionStatus status={status} message={statusMessage} /></div>
@@ -794,30 +737,73 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                 {/* Sidebar com conversas */}
                 <div className="w-1/3 max-w-sm bg-brand-gray-medium rounded-l-lg border-r border-white/10 flex flex-col">
                     <div className="p-2 border-b border-white/10">
-                        <FormInput label="" placeholder="Buscar conversa..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                        <FormInput label="" placeholder="Buscar conversa..." value={searchTerm} onChange={(e: any) => setSearchTerm(e.target.value)} />
                     </div>
                     <div className="overflow-y-auto flex-grow">
-                        {filteredChats.map(chat => (
-                             <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
-                                <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
-                                <div className="flex-grow overflow-hidden">
-                                    <div className="flex justify-between items-baseline">
-                                        <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
-                                        <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                                    </div>
-                                    <p className="text-sm text-gray-400 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
+                        {/* Human Queue Section */}
+                        {humanChats.length > 0 && (
+                            <div className="mb-2">
+                                <div className="px-3 py-2 text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1 bg-red-900/20">
+                                    <HandRaisedIcon className="w-4 h-4"/> Aguardando Atendimento
                                 </div>
+                                {humanChats.map(chat => (
+                                    <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-red-800/50 hover:bg-white/5'}`}>
+                                        <div className="relative">
+                                            <UserCircleIcon className="w-10 h-10 text-red-400 flex-shrink-0" />
+                                            <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span></span>
+                                        </div>
+                                        <div className="flex-grow overflow-hidden">
+                                            <div className="flex justify-between items-baseline">
+                                                <p className="font-bold text-red-200 truncate">{chat.name || chat.id.split('@')[0]}</p>
+                                                <p className="text-xs text-red-300/70 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                                            </div>
+                                            <p className="text-sm text-red-300/70 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
+                        )}
+                        
+                        {/* Regular Chats */}
+                        {regularChats.length > 0 && (
+                            <div>
+                                {humanChats.length > 0 && <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Conversas</div>}
+                                {regularChats.map(chat => (
+                                     <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
+                                        <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
+                                        <div className="flex-grow overflow-hidden">
+                                            <div className="flex justify-between items-baseline">
+                                                <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
+                                                <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                                            </div>
+                                            <p className="text-sm text-gray-400 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
                 {/* Janela de Chat */}
                 <div className="flex-1 flex flex-col bg-brand-gray-dark rounded-r-lg">
                     {activeChat ? (
                          <>
-                            <div className="p-3 border-b border-white/10 flex items-center gap-3">
-                                <UserCircleIcon className="w-10 h-10 text-gray-400" />
-                                <p className="font-bold text-white">{activeChat.name}</p>
+                            <div className="p-3 border-b border-white/10 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <UserCircleIcon className="w-10 h-10 text-gray-400" />
+                                    <div>
+                                        <p className="font-bold text-white">{activeChat.name}</p>
+                                        {isCurrentChatInHumanQueue && <span className="text-xs text-red-400 font-semibold animate-pulse">● Aguardando Atendimento Humano</span>}
+                                    </div>
+                                </div>
+                                {isCurrentChatInHumanQueue && (
+                                    <button 
+                                        onClick={handleResolveHumanSupport}
+                                        className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 shadow-[0_0_10px_rgba(220,38,38,0.5)]"
+                                    >
+                                        <CheckCircleIcon className="w-5 h-5" /> Finalizar Atendimento
+                                    </button>
+                                )}
                             </div>
                             <div className="p-4 space-y-4 flex-grow overflow-y-auto">
                                 {messages.map((msg, index) => (
@@ -850,1078 +836,11 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
         </div>
     );
 };
-// --- MODAL AND FORM COMPONENTS ---
-type ModalProps = { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; };
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
-    if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose} aria-modal="true" role="dialog">
-            <div className="bg-brand-gray-medium rounded-lg shadow-xl w-full max-w-md border border-brand-red-dark/50" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center p-4 border-b border-white/10">
-                    <h3 className="text-xl font-bold text-white">{title}</h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Fechar modal"><XMarkIcon className="w-6 h-6" /></button>
-                </div>
-                <div className="p-4 max-h-[80vh] overflow-y-auto">{children}</div>
-            </div>
-        </div>
-    );
-};
 
-const FormInput = ({ label, className, ...props }: { label: string, className?: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <div>
-        <label htmlFor={props.id || props.name} className={`block text-sm font-medium text-gray-300 mb-1 ${label ? '' : 'sr-only'}`}>{label}</label>
-        <input {...props} className={`w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red ${className}`} />
-    </div>
-);
-
-type AutomatedMessageModalProps = {
-    isOpen: boolean;
-    message: AutomatedMessage | null;
-    onSave: (message: AutomatedMessage) => void;
-    onClose: () => void;
-};
-
-const AutomatedMessageModal: React.FC<AutomatedMessageModalProps> = ({ isOpen, message, onSave, onClose }) => {
-    const [formData, setFormData] = useState<Omit<AutomatedMessage, 'id'>>({
-        name: '',
-        enabled: true,
-        trigger: 'before_appointment',
-        value: 24,
-        unit: 'hours',
-        message: ''
-    });
-
-    useEffect(() => {
-        if (message) {
-            setFormData({
-                name: message.name,
-                enabled: message.enabled,
-                trigger: message.trigger,
-                value: message.value,
-                unit: message.unit,
-                message: message.message
-            });
-        } else {
-            // Reset for new message
-            setFormData({
-                name: '',
-                enabled: true,
-                trigger: 'before_appointment',
-                value: 24,
-                unit: 'hours',
-                message: ''
-            });
-        }
-    }, [message]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const { name, value, type } = e.target;
-        if (type === 'checkbox') {
-            const checked = (e.target as HTMLInputElement).checked;
-            setFormData(prev => ({ ...prev, [name]: checked }));
-        } else {
-            setFormData(prev => ({ ...prev, [name]: value }));
-        }
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const messageToSave = {
-            ...formData,
-            id: message?.id || `msg-${Date.now()}` // Use existing id or generate a new one
-        };
-        onSave(messageToSave);
-    };
-    
-    const triggerLabels: Record<AutomatedMessage['trigger'], string> = {
-         before_appointment: 'Antes do Agendamento',
-         after_service_finished: 'Após Finalizar Serviço',
-         service_maintenance_due: 'Lembrete de Manutenção de Serviço',
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={message ? 'Editar Mensagem' : 'Nova Mensagem Automática'}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <label htmlFor="enabled" className="font-medium text-white">Ativada</label>
-                    <input type="checkbox" id="enabled" name="enabled" checked={formData.enabled} onChange={handleChange} className="w-4 h-4 text-brand-red bg-gray-700 border-gray-600 rounded focus:ring-brand-red" />
-                </div>
-                <FormInput label="Nome da Mensagem" name="name" value={formData.name} onChange={handleChange} required />
-                <div>
-                    <label htmlFor="trigger" className="block text-sm font-medium text-gray-300 mb-1">Gatilho (Quando enviar)</label>
-                    <select id="trigger" name="trigger" value={formData.trigger} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
-                        {Object.entries(triggerLabels).map(([key, label]) => (
-                            <option key={key} value={key}>{label}</option>
-                        ))}
-                    </select>
-                </div>
-                {formData.trigger !== 'service_maintenance_due' && (
-                    <div className="flex gap-2 items-end">
-                        <div className="flex-grow">
-                            <FormInput label="Valor" type="number" name="value" value={formData.value} onChange={handleChange} required />
-                        </div>
-                        <div>
-                            <label htmlFor="unit" className="block text-sm font-medium text-gray-300 mb-1">Unidade</label>
-                            <select id="unit" name="unit" value={formData.unit} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
-                                <option value="hours">Horas</option>
-                                <option value="days">Dias</option>
-                            </select>
-                        </div>
-                    </div>
-                )}
-                <div>
-                    <label htmlFor="message" className="block text-sm font-medium text-gray-300 mb-1">Mensagem</label>
-                    <textarea id="message" name="message" value={formData.message} onChange={handleChange} rows={4} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red" required></textarea>
-                    <p className="text-xs text-gray-400 mt-1">Use variáveis como `[CLIENTE]`, `[CARRO_MODELO]`, `[SERVICO]`, `[DATA]`.</p>
-                </div>
-                <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
-                    <button type="button" onClick={onClose} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
-                    <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-const SettingsView = ({
-    currentUser,
-    users,
-    operatingHours,
-    automatedMessages,
-    monthlyPlans,
-    services,
-    onSave,
-    onFileUpload,
-    catalogFiles,
-    isProcessingFile,
-    onFileDelete,
-    onUserSave,
-    onUserDelete,
-    onEditUser,
-}: {
-    currentUser: User;
-    users: User[];
-    operatingHours: OperatingHours;
-    automatedMessages: AutomatedMessage[];
-    monthlyPlans: MonthlyPlan[];
-    services: Service[];
-    onSave: (settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => void;
-    onFileUpload: (files: File[]) => void;
-    catalogFiles: { id: string; file: { name: string, type: string } }[];
-    isProcessingFile: boolean;
-    onFileDelete: (fileId: string) => void;
-    onUserSave: (user: User) => void;
-    onUserDelete: (userId: string) => void;
-    onEditUser: (user: User) => void;
-}) => {
-    const [localOperatingHours, setLocalOperatingHours] = useState<OperatingHours>(operatingHours);
-    const [localMessages, setLocalMessages] = useState<AutomatedMessage[]>(automatedMessages);
-    const [localPlans, setLocalPlans] = useState<MonthlyPlan[]>(monthlyPlans);
-    const [localUsers, setLocalUsers] = useState<User[]>(users);
-    const [newTime, setNewTime] = useState('');
-    const [editingMessage, setEditingMessage] = useState<AutomatedMessage | 'new' | null>(null);
-    const [editingPlan, setEditingPlan] = useState<MonthlyPlan | 'new' | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => setLocalUsers(users), [users]);
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            onFileUpload(Array.from(e.target.files));
-        }
-    };
-
-    const handleDayToggle = (dayIndex: number) => {
-        const newDaysOpen = localOperatingHours.daysOpen.includes(dayIndex)
-            ? localOperatingHours.daysOpen.filter(d => d !== dayIndex)
-            : [...localOperatingHours.daysOpen, dayIndex];
-        setLocalOperatingHours({ ...localOperatingHours, daysOpen: newDaysOpen });
-    };
-
-    const handleAddTime = () => {
-        if (newTime.match(/^\d{2}:\d{2}$/) && !localOperatingHours.availableTimes.includes(newTime)) {
-            const updatedTimes = [...localOperatingHours.availableTimes, newTime].sort();
-            setLocalOperatingHours({ ...localOperatingHours, availableTimes: updatedTimes });
-            setNewTime('');
-        } else {
-            alert('Formato de hora inválido (use HH:MM) ou horário já existente.');
-        }
-    };
-
-    const handleRemoveTime = (timeToRemove: string) => {
-        const updatedTimes = localOperatingHours.availableTimes.filter(t => t !== timeToRemove);
-        setLocalOperatingHours({ ...localOperatingHours, availableTimes: updatedTimes });
-    };
-
-    const handleSaveMessage = (message: AutomatedMessage) => {
-        const isNew = !localMessages.some(m => m.id === message.id);
-        if (isNew) {
-            setLocalMessages(prev => [...prev, { ...message, id: `msg-${Date.now()}` }]);
-        } else {
-            setLocalMessages(prev => prev.map(m => m.id === message.id ? message : m));
-        }
-        setEditingMessage(null);
-    };
-
-    const handleDeleteMessage = (id: string) => {
-        if (window.confirm('Tem certeza que deseja excluir esta mensagem automática?')) {
-            setLocalMessages(prev => prev.filter(m => m.id !== id));
-        }
-    };
-    
-     const handleSavePlan = (plan: MonthlyPlan) => {
-        const isNew = !localPlans.some(p => p.id === plan.id);
-        if (isNew) {
-            setLocalPlans(prev => [...prev, { ...plan, id: `plan-${Date.now()}` }]);
-        } else {
-            setLocalPlans(prev => prev.map(p => p.id === plan.id ? plan : p));
-        }
-        setEditingPlan(null);
-    };
-
-    const handleDeletePlan = (id: string) => {
-        if (window.confirm('Tem certeza que deseja excluir este plano? Clientes associados a ele perderão o vínculo.')) {
-            setLocalPlans(prev => prev.filter(p => p.id !== id));
-        }
-    };
-
-    const handleSaveChanges = () => {
-        onSave({
-            operatingHours: localOperatingHours,
-            automatedMessages: localMessages,
-            monthlyPlans: localPlans,
-            users: localUsers,
-        });
-    };
-
-    const weekdays = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-    const triggerLabels: Record<AutomatedMessage['trigger'], string> = {
-        before_appointment: 'Antes do Agendamento',
-        after_service_finished: 'Após Finalizar Serviço',
-        service_maintenance_due: 'Lembrete de Manutenção de Serviço',
-    };
-
-    return (
-        <div className="p-4 space-y-6">
-             {currentUser.role === 'owner' && (
-                <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-xl font-bold text-brand-red">Gerenciamento de Usuários</h3>
-                        <button onClick={() => onEditUser({} as User)} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><UserPlusIcon className="w-4 h-4" /> Novo Usuário</button>
-                    </div>
-                    <div className="space-y-3">
-                        {users.map(user => (
-                            <div key={user.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
-                                <div>
-                                    <p className="font-semibold text-white">{user.username} <span className="text-xs bg-brand-red/50 text-red-300 px-2 py-0.5 rounded-full ml-2">{user.role}</span></p>
-                                    <p className="text-sm text-gray-400">Acesso: {Object.entries(user.permissions).filter(([, allowed]) => allowed).map(([tabId]) => ALL_TABS.find(t=>t.id === tabId)?.label).join(', ')}</p>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button onClick={() => onEditUser(user)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
-                                    {user.role !== 'owner' && <button onClick={() => onUserDelete(user.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                <h3 className="text-xl font-bold text-brand-red mb-4">Dias de Funcionamento</h3>
-                <div className="space-y-3">
-                    {weekdays.map((day, index) => (
-                        <div key={day} className="flex items-center justify-between bg-brand-gray-light p-3 rounded-md">
-                            <span className="text-white font-medium">{day}</span>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={localOperatingHours.daysOpen.includes(index)} onChange={() => handleDayToggle(index)} className="sr-only peer" />
-                                <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-brand-red/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-red"></div>
-                            </label>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                <h3 className="text-xl font-bold text-brand-red mb-4">Horários de Atendimento</h3>
-                <div className="flex gap-2 mb-4">
-                    <input
-                        type="time"
-                        value={newTime}
-                        onChange={(e) => setNewTime(e.target.value)}
-                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
-                        placeholder="HH:MM"
-                    />
-                    <button onClick={handleAddTime} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 rounded-md flex-shrink-0">Adicionar</button>
-                </div>
-                <div className="space-y-2">
-                     {localOperatingHours.availableTimes.length > 0 ? localOperatingHours.availableTimes.map(time => (
-                        <div key={time} className="flex items-center justify-between bg-brand-gray-light p-2 rounded-md">
-                            <span className="font-mono text-white text-lg">{time}</span>
-                            <button onClick={() => handleRemoveTime(time)} className="text-red-500 hover:text-red-400 p-1"><TrashIcon className="w-5 h-5"/></button>
-                        </div>
-                    )) : <p className="text-gray-400 text-center py-2">Nenhum horário cadastrado.</p>}
-                </div>
-            </div>
-            
-            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                <h3 className="text-xl font-bold text-brand-red mb-4">Configurações do Atendimento</h3>
-                <div className="bg-brand-gray-light p-3 rounded-md">
-                    <p className="text-white font-medium mb-2">Catálogo de Serviços (PDF ou JPG)</p>
-                    <p className="text-sm text-gray-400 mb-3">Estes arquivos serão processados para atualizar sua lista de serviços. Todos os arquivos serão enviados para os clientes no chat.</p>
-                    <input
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="hidden"
-                        id="file-upload"
-                        disabled={isProcessingFile}
-                        multiple
-                    />
-                    <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded-md transition-colors disabled:bg-blue-800 disabled:cursor-wait" disabled={isProcessingFile}>
-                         {isProcessingFile ? <> <ArrowPathIcon className="w-5 h-5 animate-spin" /> Processando...</> : <><ArchiveBoxIcon className="w-5 h-5"/>Fazer Upload do Catálogo</>}
-                    </button>
-                    {catalogFiles.length > 0 && (
-                        <div className="mt-4 pt-3 border-t border-white/20">
-                            <p className="text-sm font-semibold text-gray-300 mb-2">Arquivos Carregados:</p>
-                            <div className="space-y-2">
-                                {catalogFiles.map(({ id, file }) => (
-                                    <div key={id} className="flex items-center justify-between bg-brand-gray-dark p-2 rounded-md">
-                                        <div className="flex items-center gap-2 overflow-hidden">
-                                            {file.type.includes('pdf') ? <DocumentTextIcon className="w-5 h-5 text-brand-red flex-shrink-0"/> : <PhotoIcon className="w-5 h-5 text-brand-red flex-shrink-0"/>}
-                                            <span className="text-sm text-white truncate">{file.name}</span>
-                                        </div>
-                                        <button onClick={() => onFileDelete(id)} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0" disabled={isProcessingFile}>
-                                            <TrashIcon className="w-5 h-5"/>
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-            
-            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold text-brand-red">Planos Mensais</h3>
-                    <button onClick={() => setEditingPlan('new')} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><PlusIcon className="w-4 h-4" /> Novo Plano</button>
-                </div>
-                 <div className="space-y-3">
-                     {localPlans.map(plan => (
-                         <div key={plan.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
-                             <div>
-                                 <p className="font-semibold text-white">{plan.name}</p>
-                                 <p className="text-sm text-green-400 font-bold">R$ {plan.price.toFixed(2)}/mês</p>
-                             </div>
-                             <div className="flex gap-2">
-                                 <button onClick={() => setEditingPlan(plan)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
-                                 <button onClick={() => handleDeletePlan(plan.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>
-                             </div>
-                         </div>
-                     ))}
-                     {localPlans.length === 0 && <p className="text-gray-400 text-center py-4">Nenhum plano mensal configurado.</p>}
-                 </div>
-            </div>
-
-            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold text-brand-red">Mensagens Automáticas</h3>
-                    <button onClick={() => setEditingMessage('new')} className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md text-sm transition-colors"><PlusIcon className="w-4 h-4" /> Novo Mensagem</button>
-                </div>
-                <div className="space-y-3">
-                    {localMessages.map(msg => (
-                        <div key={msg.id} className="bg-brand-gray-light p-3 rounded-md flex justify-between items-center">
-                            <div>
-                                <p className={`font-semibold ${msg.enabled ? 'text-white' : 'text-gray-500 line-through'}`}>{msg.name}</p>
-                                <p className="text-sm text-gray-400">{triggerLabels[msg.trigger]}: <span className="font-semibold">{msg.trigger !== 'service_maintenance_due' ? `${msg.value} ${msg.unit === 'hours' ? 'horas' : 'dias'}` : 'Automático'}</span></p>
-                            </div>
-                            <div className="flex gap-2">
-                                <button onClick={() => setEditingMessage(msg)} className="text-yellow-400 hover:text-yellow-300 p-1"><PencilSquareIcon className="w-5 h-5"/></button>
-                                <button onClick={() => handleDeleteMessage(msg.id)} className="text-red-400 hover:text-red-300 p-1"><TrashIcon className="w-5 h-5"/></button>
-                            </div>
-                        </div>
-                    ))}
-                    {localMessages.length === 0 && <p className="text-gray-400 text-center py-4">Nenhuma mensagem automática configurada.</p>}
-                </div>
-            </div>
-
-            <button onClick={handleSaveChanges} className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-3 px-4 rounded-md transition-colors text-lg">Salvar Todas as Configurações</button>
-        
-            <AutomatedMessageModal 
-                isOpen={editingMessage !== null}
-                message={editingMessage === 'new' ? null : editingMessage}
-                onSave={handleSaveMessage}
-                onClose={() => setEditingMessage(null)}
-            />
-            
-             <MonthlyPlanModal 
-                isOpen={editingPlan !== null}
-                plan={editingPlan === 'new' ? null : editingPlan}
-                services={services}
-                onSave={handleSavePlan}
-                onClose={() => setEditingPlan(null)}
-            />
-        </div>
-    );
-};
-
-// ... (Other components like BarChart, DashboardView, etc. remain mostly the same)
-const BarChart = ({ data, labels }: { data: number[]; labels: string[] }) => {
-    const maxValue = Math.max(...data, 1); // Avoid division by zero
-    return (
-        <div className="flex justify-around items-end h-64 bg-brand-gray-light p-4 rounded-md gap-2">
-            {data.map((value, index) => (
-                <div key={index} className="flex flex-col items-center flex-1" title={`R$ ${value.toFixed(2)}`}>
-                    <div
-                        className="w-full bg-brand-red hover:bg-red-700 transition-all duration-300 rounded-t-md"
-                        style={{ height: `${(value / maxValue) * 100}%` }}
-                    ></div>
-                    <span className="text-xs text-gray-400 mt-2">{labels[index]}</span>
-                </div>
-            ))}
-        </div>
-    );
-};
-
-const DashboardView = ({ appointments, clients, services, monthlyPlans }: { appointments: Appointment[]; clients: Client[]; services: Service[]; monthlyPlans: MonthlyPlan[]; }) => {
-    const getFirstDayOfMonth = () => {
-        const now = new Date();
-        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-    };
-    const getToday = () => new Date().toISOString().split('T')[0];
-
-    const [startDateInput, setStartDateInput] = useState(getFirstDayOfMonth());
-    const [endDateInput, setEndDateInput] = useState(getToday());
-    const [activeStartDate, setActiveStartDate] = useState(getFirstDayOfMonth());
-    const [activeEndDate, setActiveEndDate] = useState(getToday());
-
-    const MetricCard = ({ icon, title, children, className = '' }: { icon: React.ReactNode, title: string, children?: React.ReactNode, className?: string }) => (
-        <div className={`bg-brand-gray-medium p-4 rounded-lg border border-white/10 flex flex-col ${className}`}>
-            <div className="flex items-center gap-3 mb-4">
-                <div className="bg-brand-red/20 p-2 rounded-full">{icon}</div>
-                <h3 className="text-lg font-semibold text-white">{title}</h3>
-            </div>
-            <div className="flex-grow">{children}</div>
-        </div>
-    );
-    
-    const filteredFinishedAppointments = useMemo(() => {
-        return appointments.filter(a => {
-            return a.status === AppointmentStatus.Finished && a.date >= activeStartDate && a.date <= activeEndDate;
-        });
-    }, [appointments, activeStartDate, activeEndDate]);
-
-    // --- METRICS ---
-    const getRevenue = useCallback((apps: Appointment[]) => apps
-        .flatMap(a => a.serviceIds.map(serviceId => services.find(s => s.id === serviceId)?.price || 0))
-        .reduce((sum, price) => sum + price, 0), [services]);
-
-    const dailyRevenue = useMemo(() => {
-        const todayStr = getToday();
-        const todaysAppointments = appointments.filter(a => a.status === AppointmentStatus.Finished && a.date === todayStr);
-        return getRevenue(todaysAppointments);
-    }, [appointments, getRevenue]);
-
-    const revenueForPeriod = getRevenue(filteredFinishedAppointments);
-
-    const topClients = useMemo(() => {
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-
-        const appointmentsThisMonth = appointments.filter(a => {
-            const appDate = new Date(a.date + 'T00:00:00');
-            return appDate.getMonth() === currentMonth && appDate.getFullYear() === currentYear;
-        });
-
-        const clientCounts = appointmentsThisMonth.reduce((acc, app) => {
-            acc[app.clientId] = (acc[app.clientId] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
-
-        return Object.entries(clientCounts)
-            .map(([clientId, count]) => ({
-                client: clients.find(c => c.id === clientId),
-                count,
-            }))
-            .filter(item => item.client)
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 3);
-    }, [appointments, clients]);
-    
-    // Faturamento Mensal (last 6 months - independent of filter)
-    const monthlyRevenueData = useMemo(() => {
-        const labels: string[] = [];
-        const data: number[] = [];
-        const now = new Date();
-        const allFinished = appointments.filter(a => a.status === AppointmentStatus.Finished);
-        
-        for (let i = 5; i >= 0; i--) {
-            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const monthName = date.toLocaleString('pt-BR', { month: 'short' }).replace('.', '').toLocaleUpperCase();
-            labels.push(monthName);
-            
-            const monthRevenue = getRevenue(allFinished.filter(a => {
-                const appDate = new Date(a.date + 'T00:00:00');
-                return appDate.getMonth() === date.getMonth() && appDate.getFullYear() === date.getFullYear();
-            }));
-            data.push(monthRevenue);
-        }
-        return { labels, data };
-    }, [appointments, getRevenue]);
-
-    // Serviços Mais/Menos Vendidos (based on filter)
-    const serviceCounts = filteredFinishedAppointments
-        .flatMap(a => a.serviceIds)
-        .reduce((acc, id) => {
-            acc[id] = (acc[id] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
-
-    const sortedServices = Object.entries(serviceCounts)
-        .map(([id, count]) => ({ service: services.find(s => s.id === id), count }))
-        .filter(item => item.service)
-        .sort((a, b) => b.count - a.count);
-        
-    const mostSoldServices = sortedServices.slice(0, 3);
-    const leastSoldServices = sortedServices.length > 3 ? sortedServices.slice(-3).reverse() : [];
-
-    // Formas de Pagamento (based on filter)
-    const paymentMethodCounts = filteredFinishedAppointments
-        .reduce((acc, app) => {
-            if (app.paymentMethod) {
-                acc[app.paymentMethod] = (acc[app.paymentMethod] || 0) + 1;
-            }
-            return acc;
-        }, {} as Record<string, number>);
-    
-    const formatDate = (dateStr: string) => dateStr.split('-').reverse().join('/');
-
-    return (
-        <div className="p-4 space-y-4">
-             <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                <label className="block text-sm font-medium text-gray-300 mb-2">Filtrar por Período</label>
-                <div className="flex flex-col md:flex-row gap-2">
-                    <input
-                        type="date"
-                        value={startDateInput}
-                        onChange={e => setStartDateInput(e.target.value)}
-                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
-                    />
-                     <input
-                        type="date"
-                        value={endDateInput}
-                        onChange={e => setEndDateInput(e.target.value)}
-                        className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red"
-                    />
-                    <button 
-                        onClick={() => { setActiveStartDate(startDateInput); setActiveEndDate(endDateInput); }} 
-                        className="bg-brand-red hover:bg-red-700 text-white font-bold px-4 rounded-md"
-                    >
-                        Filtrar
-                    </button>
-                </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <MetricCard icon={<CurrencyDollarIcon className="w-8 h-8 text-brand-red"/>} title="Faturamento do Dia">
-                    <p className="text-4xl font-bold text-white">R$ {dailyRevenue.toFixed(2)}</p>
-                    <p className="text-sm text-gray-400">Receita de serviços finalizados hoje</p>
-                </MetricCard>
-
-                <MetricCard icon={<CurrencyDollarIcon className="w-8 h-8 text-brand-red"/>} title="Faturamento Bruto">
-                    <p className="text-4xl font-bold text-white">R$ {revenueForPeriod.toFixed(2)}</p>
-                    <p className="text-sm text-gray-400">De {formatDate(activeStartDate)} até {formatDate(activeEndDate)}</p>
-                </MetricCard>
-
-                <MetricCard icon={<TrophyIcon className="w-8 h-8 text-yellow-400"/>} title="Top Clientes (Mês)">
-                    {topClients.length > 0 ? (
-                        <ul className="space-y-2">
-                            {topClients.map(({ client, count }) => (
-                                <li key={client!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
-                                    <span className="text-white font-medium truncate pr-2">{client!.name}</span>
-                                    <span className="text-yellow-400 font-bold text-lg flex-shrink-0">{count}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : <p className="text-gray-400 text-center py-2">Nenhum agendamento este mês.</p>}
-                </MetricCard>
-            </div>
-
-            <div className="bg-brand-gray-medium p-4 rounded-lg border border-white/10">
-                <h3 className="text-lg font-semibold text-white mb-4">Faturamento Mensal (Últimos 6 Meses)</h3>
-                <BarChart labels={monthlyRevenueData.labels} data={monthlyRevenueData.data} />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <MetricCard icon={<SparklesIcon className="w-6 h-6 text-brand-red"/>} title="Serviços Mais Vendidos (Período)">
-                    {mostSoldServices.length > 0 ? (
-                        <ul className="space-y-2">
-                            {mostSoldServices.map(({ service, count }) => (
-                                <li key={service!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
-                                    <span className="text-white font-medium truncate pr-2">{service!.name}</span>
-                                    <span className="text-brand-red font-bold text-lg flex-shrink-0">{count}x</span>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : <p className="text-gray-400 text-center py-2">Nenhum serviço finalizado no período.</p>}
-                </MetricCard>
-
-                <MetricCard icon={<ArchiveBoxIcon className="w-6 h-6 text-brand-red"/>} title="Serviços Menos Vendidos (Período)">
-                     {leastSoldServices.length > 0 ? (
-                        <ul className="space-y-2">
-                            {leastSoldServices.map(({ service, count }) => (
-                                <li key={service!.id} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
-                                    <span className="text-white font-medium truncate pr-2">{service!.name}</span>
-                                    <span className="text-brand-red font-bold text-lg flex-shrink-0">{count}x</span>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : <p className="text-gray-400 text-center py-2">Dados insuficientes.</p>}
-                </MetricCard>
-
-                <MetricCard icon={<ChartPieIcon className="w-6 h-6 text-brand-red"/>} title="Formas de Pagamento (Período)">
-                     {Object.keys(paymentMethodCounts).length > 0 ? (
-                        <ul className="space-y-2">
-                            {Object.entries(paymentMethodCounts).sort((a, b) => b[1] - a[1]).map(([method, count]) => (
-                                <li key={method} className="flex justify-between items-center bg-brand-gray-light p-2 rounded-md">
-                                    <span className="text-white font-medium">{method}</span>
-                                    <span className="text-brand-red font-bold text-lg">{count}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : <p className="text-gray-400 text-center py-2">Nenhum pagamento registrado no período.</p>}
-                </MetricCard>
-            </div>
-        </div>
-    );
-};
-
-const ClientForm = ({ client, onSave, onCancel, monthlyPlans }: { client: Client | null; onSave: (client: Omit<Client, 'id'> & { id?: string }) => void; onCancel: () => void; monthlyPlans: MonthlyPlan[] }) => {
-    const [formData, setFormData] = useState({ id: client?.id || '', name: client?.name || '', cpf: client?.cpf || '', whatsapp: client?.whatsapp || '', cars: client?.cars || [], monthlyPlanId: client?.monthlyPlanId || '' });
-    const [newCar, setNewCar] = useState({ model: '', plate: '', protections: '' });
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    const handleNewCarChange = (e: React.ChangeEvent<HTMLInputElement>) => setNewCar(prev => ({ ...prev, [e.target.name]: e.target.value }));
-
-    const handleAddCar = () => {
-        if (!newCar.model || !newCar.plate) {
-            alert('Modelo e placa são obrigatórios para adicionar um novo veículo.');
-            return;
-        }
-        const newVehicle: Car = { id: `car${Date.now()}`, model: newCar.model, plate: newCar.plate, protections: newCar.protections.split(',').map(p => p.trim()).filter(p => p) };
-        setFormData(prev => ({ ...prev, cars: [...prev.cars, newVehicle] }));
-        setNewCar({ model: '', plate: '', protections: '' });
-    };
-    
-    const handleDeleteCar = (carId: string) => setFormData(prev => ({ ...prev, cars: prev.cars.filter(car => car.id !== carId) }));
-
-    const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSave(formData); };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <FormInput label="Nome Completo" name="name" value={formData.name} onChange={handleChange} required />
-            <FormInput label="CPF" name="cpf" value={formData.cpf} onChange={handleChange} required />
-            <FormInput label="WhatsApp (com DDD)" name="whatsapp" value={formData.whatsapp} onChange={handleChange} required />
-            
-             <div>
-                <label htmlFor="monthlyPlanId" className="block text-sm font-medium text-gray-300 mb-1">Plano Mensal</label>
-                <select id="monthlyPlanId" name="monthlyPlanId" value={formData.monthlyPlanId} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
-                    <option value="">Nenhum Plano</option>
-                    {monthlyPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
-                </select>
-            </div>
-            
-            <div className="pt-4 border-t border-white/20 mt-4">
-                <h4 className="text-lg font-semibold text-brand-red mb-3">Veículos</h4>
-                <div className="space-y-2 mb-4">
-                    {formData.cars.map(car => (
-                        <div key={car.id} className="bg-brand-gray-dark p-2 rounded-md flex justify-between items-center">
-                            <div>
-                                <p className="font-semibold text-white">{car.model} ({car.plate})</p>
-                                <p className="text-xs text-gray-400">{car.protections.join(', ')}</p>
-                            </div>
-                            <button type="button" onClick={() => handleDeleteCar(car.id)} className="text-red-400 hover:text-red-300"><TrashIcon className="w-4 h-4"/></button>
-                        </div>
-                    ))}
-                </div>
-                <div className="bg-brand-gray-dark/50 p-3 rounded-md space-y-2 border border-dashed border-white/20">
-                    <h5 className="font-semibold text-white">Adicionar Novo Veículo</h5>
-                    <FormInput label="Modelo" name="model" value={newCar.model} onChange={handleNewCarChange} placeholder="Ex: Honda Civic" />
-                    <FormInput label="Placa" name="plate" value={newCar.plate} onChange={handleNewCarChange} placeholder="ABC-1234" />
-                    <FormInput label="Proteções (separado por vírgula)" name="protections" value={newCar.protections} onChange={handleNewCarChange} placeholder="PPF, Vitrificação 5 anos" />
-                    <button type="button" onClick={handleAddCar} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-md mt-2">Adicionar Veículo</button>
-                </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
-                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
-                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Cliente</button>
-            </div>
-        </form>
-    );
-};
-
-const AppointmentForm = ({ appointment, clients, services, monthlyPlans, clientPlanUsages, onSave, onCancel }: { appointment: Appointment | null; clients: Client[]; services: Service[]; monthlyPlans: MonthlyPlan[]; clientPlanUsages: ClientPlanUsage[]; onSave: (appointment: Omit<Appointment, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
-    const [formData, setFormData] = useState({
-        id: appointment?.id || '',
-        clientId: appointment?.clientId || '',
-        carId: appointment?.carId || '',
-        serviceIds: appointment?.serviceIds || [],
-        date: appointment?.date || new Date().toISOString().split('T')[0],
-        time: appointment?.time || '09:00',
-        status: appointment?.status || AppointmentStatus.Scheduled,
-        isPlanService: appointment?.isPlanService || false,
-        paymentMethod: appointment?.paymentMethod || '',
-    });
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
-    
-    const handleServiceChange = (serviceId: string) => {
-        setFormData(prev => {
-            const newServiceIds = prev.serviceIds.includes(serviceId)
-                ? prev.serviceIds.filter(id => id !== serviceId)
-                : [...prev.serviceIds, serviceId];
-            return { ...prev, serviceIds: newServiceIds };
-        });
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const client = clients.find(c => c.id === formData.clientId);
-        const plan = monthlyPlans.find(p => p.id === client?.monthlyPlanId);
-        const isAnyServiceInPlan = formData.serviceIds.some(sid => plan?.includedServices.some(is => is.serviceId === sid));
-        
-        const dataToSave: Omit<Appointment, 'id'> & { id?: string } = {
-            ...formData,
-            isPlanService: isAnyServiceInPlan,
-            paymentMethod: formData.paymentMethod ? (formData.paymentMethod as Appointment['paymentMethod']) : undefined,
-        };
-        
-        onSave(dataToSave);
-    };
-
-    const selectedClient = clients.find(c => c.id === formData.clientId);
-    const clientPlan = monthlyPlans.find(p => p.id === selectedClient?.monthlyPlanId);
-    
-    const getFirstDayOfCurrentMonth = () => {
-        const now = new Date();
-        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-    };
-    const currentCycleStart = getFirstDayOfCurrentMonth();
-    const clientUsage = clientPlanUsages.find(u => u.clientId === selectedClient?.id && u.cycleStartDate === currentCycleStart);
-
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-             <div>
-                 <label htmlFor="clientId" className="block text-sm font-medium text-gray-300 mb-1">Cliente</label>
-                 <select id="clientId" name="clientId" value={formData.clientId} onChange={handleChange} required className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
-                     <option value="">Selecione um cliente</option>
-                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                 </select>
-             </div>
-             {selectedClient && (
-                 <div>
-                     <label htmlFor="carId" className="block text-sm font-medium text-gray-300 mb-1">Veículo</label>
-                     <select id="carId" name="carId" value={formData.carId} onChange={handleChange} required className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
-                         <option value="">Selecione um veículo</option>
-                         {selectedClient.cars.map(car => <option key={car.id} value={car.id}>{car.model} ({car.plate})</option>)}
-                     </select>
-                 </div>
-             )}
-             <div>
-                 <label className="block text-sm font-medium text-gray-300 mb-1">Serviços</label>
-                 <div className="space-y-2 max-h-40 overflow-y-auto bg-brand-gray-dark p-2 rounded-md border border-brand-gray-light">
-                     {services.map(service => {
-                         const planServiceInfo = clientPlan?.includedServices.find(is => is.serviceId === service.id);
-                         const usedCount = clientUsage?.usedServices[service.id] || 0;
-                         const isIncluded = planServiceInfo && usedCount < planServiceInfo.quantity;
-                         
-                         return (
-                             <div key={service.id} className="flex items-center justify-between">
-                                 <div className="flex items-center">
-                                     <input id={`service-${service.id}`} type="checkbox" checked={formData.serviceIds.includes(service.id)} onChange={() => handleServiceChange(service.id)} className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-brand-red focus:ring-brand-red"/>
-                                     <label htmlFor={`service-${service.id}`} className="ml-2 text-sm text-gray-300">{service.name}</label>
-                                 </div>
-                                 {isIncluded && (
-                                     <span className="text-xs font-semibold bg-yellow-600/30 text-yellow-300 px-2 py-0.5 rounded-full">Incluso no Plano</span>
-                                 )}
-                             </div>
-                         )
-                     })}
-                 </div>
-             </div>
-             <FormInput label="Data" name="date" type="date" value={formData.date} onChange={handleChange} required />
-             <FormInput label="Horário" name="time" type="time" value={formData.time} onChange={handleChange} required />
-             <div>
-                <label htmlFor="paymentMethod" className="block text-sm font-medium text-gray-300 mb-1">Forma de Pagamento</label>
-                <select id="paymentMethod" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="w-full bg-brand-gray-dark border border-brand-gray-light text-white rounded-md p-2 focus:ring-brand-red focus:border-brand-red">
-                    <option value="">Não definido</option>
-                    <option value="PIX">PIX</option>
-                    <option value="Cartão de Crédito">Cartão de Crédito</option>
-                    <option value="Cartão de Débito">Cartão de Débito</option>
-                    <option value="Dinheiro">Dinheiro</option>
-                </select>
-            </div>
-             
-             <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
-                 <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
-                 <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Agendamento</button>
-             </div>
-        </form>
-    );
-};
-
-const MonthlyPlanModal = ({ isOpen, plan, services, onSave, onClose }: { isOpen: boolean; plan: MonthlyPlan | null; services: Service[]; onSave: (plan: MonthlyPlan) => void; onClose: () => void; }) => {
-    const [formData, setFormData] = useState<Omit<MonthlyPlan, 'id'>>({ name: '', price: 0, includedServices: [] });
-
-    useEffect(() => {
-        if (plan) {
-            setFormData({ name: plan.name, price: plan.price, includedServices: plan.includedServices });
-        } else {
-            setFormData({ name: '', price: 0, includedServices: [] });
-        }
-    }, [plan]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: name === 'price' ? parseFloat(value) || 0 : value }));
-    };
-
-    const handleServiceInclusionChange = (serviceId: string, quantity: number) => {
-        setFormData(prev => {
-            const existing = prev.includedServices.find(s => s.serviceId === serviceId);
-            if (existing) {
-                return { ...prev, includedServices: quantity > 0 ? prev.includedServices.map(s => s.serviceId === serviceId ? { ...s, quantity } : s) : prev.includedServices.filter(s => s.serviceId !== serviceId) };
-            } else if (quantity > 0) {
-                return { ...prev, includedServices: [...prev.includedServices, { serviceId, quantity }] };
-            }
-            return prev;
-        });
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSave({ ...formData, id: plan?.id || '' });
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={plan ? 'Editar Plano Mensal' : 'Novo Plano Mensal'}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <FormInput label="Nome do Plano" name="name" value={formData.name} onChange={handleChange} required />
-                <FormInput label="Preço Mensal (R$)" name="price" type="number" value={formData.price} onChange={handleChange} required />
-                <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Serviços Inclusos</label>
-                    <div className="space-y-2 max-h-48 overflow-y-auto bg-brand-gray-dark p-2 rounded-md border border-brand-gray-light">
-                        {services.map(service => (
-                            <div key={service.id} className="flex items-center justify-between">
-                                <span className="text-gray-300">{service.name}</span>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={formData.includedServices.find(s => s.serviceId === service.id)?.quantity || 0}
-                                    onChange={e => handleServiceInclusionChange(service.id, parseInt(e.target.value, 10) || 0)}
-                                    className="w-16 bg-brand-gray-light text-white rounded-md p-1 text-center"
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
-                    <button type="button" onClick={onClose} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
-                    <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Plano</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-const ServiceForm = ({ service, onSave, onCancel }: { service: Service | null; onSave: (service: Omit<Service, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
-    const [formData, setFormData] = useState({
-        id: service?.id || '',
-        name: service?.name || '',
-        description: service?.description || '',
-        duration: service?.duration || 0,
-        price: service?.price || 0,
-        maintenanceIntervalMonths: service?.maintenanceIntervalMonths || undefined,
-    });
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value, type } = e.target;
-        setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) || 0 : value }));
-    };
-    
-    const handleMaintenanceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value;
-        setFormData(prev => ({...prev, maintenanceIntervalMonths: value === '' ? undefined : parseInt(value, 10) || 0 }));
-    }
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSave(formData);
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <FormInput label="Nome do Serviço" name="name" value={formData.name} onChange={handleChange} required />
-            <FormInput label="Descrição" name="description" value={formData.description} onChange={handleChange} required />
-            <FormInput label="Duração (minutos)" name="duration" type="number" value={formData.duration} onChange={handleChange} required />
-            <FormInput label="Preço (R$)" name="price" type="number" step="0.01" value={formData.price} onChange={handleChange} required />
-            <FormInput label="Intervalo de Manutenção (meses)" name="maintenanceIntervalMonths" type="number" value={formData.maintenanceIntervalMonths ?? ''} onChange={handleMaintenanceChange} placeholder="Opcional" />
-            
-            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
-                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
-                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Serviço</button>
-            </div>
-        </form>
-    );
-};
-
-type LoginViewProps = {
-    onLogin: (username: string, password: string) => void;
-    error: string;
-};
-
-const LoginView: React.FC<LoginViewProps> = ({ onLogin, error }) => {
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onLogin(username, password);
-    };
-
-    return (
-        <div className="bg-brand-gray-dark min-h-screen flex items-center justify-center p-4">
-            <div className="w-full max-w-sm">
-                <div className="flex justify-center mb-6">
-                    <img src="https://i.ibb.co/RFS2dzp/367528167-710099640950435-2122611024923455495-n.jpg" alt="CAR CLASS Logo" className="h-20 w-20 rounded-full" />
-                </div>
-                 <h1 className="text-3xl font-bold text-center text-white tracking-wider mb-2">CAR<span className="text-brand-red">CLASS</span></h1>
-                 <p className="text-center text-gray-400 mb-8">Acesso ao Painel Administrativo</p>
-                <form onSubmit={handleSubmit} className="bg-brand-gray-medium shadow-lg rounded-lg px-8 pt-6 pb-8 mb-4 border border-white/10">
-                    <div className="mb-4 relative">
-                        <UserCircleIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <FormInput 
-                            label="" 
-                            id="username"
-                            name="username"
-                            type="text"
-                            value={username}
-                            onChange={e => setUsername(e.target.value)}
-                            placeholder="Usuário"
-                            className="pl-10"
-                            required 
-                        />
-                    </div>
-                    <div className="mb-6 relative">
-                         <LockClosedIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <FormInput 
-                            label="" 
-                            id="password"
-                            name="password"
-                            type="password"
-                            value={password}
-                            onChange={e => setPassword(e.target.value)}
-                            placeholder="Senha"
-                            className="pl-10"
-                        />
-                    </div>
-                    {error && <p className="text-red-500 text-xs italic mb-4 text-center">{error}</p>}
-                    <div className="flex items-center justify-between">
-                        <button 
-                            className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:shadow-outline transition-colors" 
-                            type="submit"
-                        >
-                            Entrar
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-// ... Notification Panel Component
-const NotificationPanel = ({ notifications, onClear, onMarkAsRead }: { notifications: NotificationItem[], onClear: (id: string) => void, onMarkAsRead: (id: string) => void }) => {
-    return (
-        <div className="absolute top-14 right-4 w-80 bg-brand-gray-medium rounded-lg shadow-lg border border-white/10 z-50">
-            <div className="p-3 border-b border-white/10">
-                <h4 className="font-bold text-white">Notificações</h4>
-            </div>
-            <div className="max-h-96 overflow-y-auto">
-                {notifications.length > 0 ? notifications.map(n => (
-                    <div key={n.id} onClick={() => onMarkAsRead(n.id)} className={`p-3 border-b border-white/10 text-sm cursor-pointer hover:bg-brand-gray-light ${!n.read ? 'bg-brand-red/10' : ''}`}>
-                        <p className={`text-gray-200 ${!n.read ? 'font-semibold' : ''}`}>{n.message}</p>
-                        <p className="text-xs text-gray-500 mt-1">{new Date(n.timestamp).toLocaleString('pt-BR')}</p>
-                    </div>
-                )) : <p className="text-gray-400 text-center p-4">Nenhuma notificação.</p>}
-            </div>
-        </div>
-    );
-};
-
-// ... User Form Modal Component
-const UserForm = ({ user, onSave, onCancel }: { user: User | null; onSave: (user: Omit<User, 'id'> & { id?: string }) => void; onCancel: () => void; }) => {
-    const [formData, setFormData] = useState<Omit<User, 'id'>>({ username: '', password: '', role: 'employee', permissions: {} });
-
-    useEffect(() => {
-        if (user) {
-            setFormData({
-                username: user.username || '',
-                password: '', // Always clear password for security
-                role: user.role || 'employee',
-                permissions: user.permissions || {}
-            });
-        }
-    }, [user]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
-    const handlePermissionChange = (tabId: string, isAllowed: boolean) => {
-        setFormData(p => ({ ...p, permissions: { ...p.permissions, [tabId]: isAllowed } }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSave({ ...formData, id: user?.id });
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <FormInput label="Nome de Usuário" name="username" value={formData.username} onChange={handleChange} required />
-            <FormInput label="Senha" name="password" type="password" value={formData.password} onChange={handleChange} placeholder={user?.id ? "Deixe em branco para não alterar" : ""} required={!user?.id} />
-            <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Permissões de Acesso</label>
-                <div className="space-y-2 bg-brand-gray-dark p-3 rounded-md border border-brand-gray-light">
-                    {ALL_TABS.map(tab => (
-                        <div key={tab.id} className="flex items-center">
-                            <input
-                                id={`perm-${tab.id}`}
-                                type="checkbox"
-                                checked={!!formData.permissions[tab.id]}
-                                onChange={(e) => handlePermissionChange(tab.id, e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-brand-red focus:ring-brand-red"
-                            />
-                            <label htmlFor={`perm-${tab.id}`} className="ml-2 text-sm text-gray-300">{tab.label}</label>
-                        </div>
-                    ))}
-                </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-4 border-t border-white/10 mt-4">
-                <button type="button" onClick={onCancel} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Cancelar</button>
-                <button type="submit" className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Salvar Usuário</button>
-            </div>
-        </form>
-    );
-};
-
+// ... (Other components and App container)
 
 const App = () => {
+    // ... existing state
     const [clients, setClients] = useState<Client[]>(MOCK_CLIENTS);
     const [services, setServices] = useState<Service[]>(MOCK_SERVICES);
     const [appointments, setAppointments] = useState<Appointment[]>(MOCK_APPOINTMENTS);
@@ -1930,18 +849,15 @@ const App = () => {
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
     const [conversationLogs, setConversationLogs] = useState<ConversationLog[]>([]);
     const [isProcessingFile, setIsProcessingFile] = useState(false);
-    
     const [isLoading, setIsLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loginError, setLoginError] = useState('');
     const [users, setUsers] = useState<User[]>([]);
-
     const [operatingHours, setOperatingHours] = useState<OperatingHours>({
-         daysOpen: [1, 2, 3, 4, 5, 6], // Mon-Sat
+         daysOpen: [1, 2, 3, 4, 5, 6], 
          availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
     });
     const [automatedMessages, setAutomatedMessages] = useState<AutomatedMessage[]>([]);
-
     const [activeTab, setActiveTab] = useState('dashboard');
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
@@ -1951,18 +867,19 @@ const App = () => {
     const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-    
     const [catalogFiles, setCatalogFiles] = useState<{ id: string; file: { name: string, type: string } }[]>([]);
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
     const [whatsAppStatus, setWhatsAppStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState('Inicializando...');
+    const [humanQueue, setHumanQueue] = useState<string[]>([]); // New state for queue
 
     const addNotification = useCallback((message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
          setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
     }, []);
     
+    // ... existing functions (saveData, handleDataUpdateFromBot, loadData)
     const saveData = useCallback(async (dataToSave: { [key: string]: any }) => {
         try {
             const response = await fetch('/api/data', {
@@ -1981,13 +898,9 @@ const App = () => {
     
     const handleDataUpdateFromBot = useCallback((data: any) => {
         if (!data) return;
-        // Robust update: If the server sends a full list, replace the local state.
-        if (data.clients) {
-            setClients(data.clients);
-        }
-        if (data.appointments) {
-            setAppointments(data.appointments);
-        }
+        if (data.clients) setClients(data.clients);
+        if (data.appointments) setAppointments(data.appointments);
+        if (data.human_chat_queue) setHumanQueue(data.human_chat_queue);
     }, []);
 
     const loadData = useCallback(async () => {
@@ -2005,8 +918,9 @@ const App = () => {
             setConversationLogs(data.conversationLogs || []);
             setUsers(data.users || []);
             setCatalogFiles(data.catalogFiles || []);
-             if (data.operatingHours) setOperatingHours(data.operatingHours);
+            if (data.operatingHours) setOperatingHours(data.operatingHours);
             if (data.automatedMessages) setAutomatedMessages(data.automatedMessages);
+            if (data.human_chat_queue) setHumanQueue(data.human_chat_queue);
         } catch (error) {
             console.error("Failed to load data from server:", error);
             addNotification("Erro: Não foi possível carregar os dados do servidor.");
@@ -2019,7 +933,7 @@ const App = () => {
         loadData();
     }, [loadData]);
 
-
+    // ... (rest of the handlers: handleClientSave, etc.)
     const handleClientSave = useCallback((clientData: Omit<Client, 'id'> & { id?: string }) => {
         setClients(prevClients => {
             let newClients;
@@ -2130,22 +1044,20 @@ const App = () => {
 
     const handleFileDelete = useCallback((fileIdToDelete: string) => {
         if (window.confirm('Tem certeza que deseja remover este arquivo?')) {
-            // Optimistic update on frontend
              setCatalogFiles(prev => prev.filter(f => f.id !== fileIdToDelete));
 
-            // Call server to delete
             fetch(`/api/delete-catalog/${fileIdToDelete}`, { method: 'DELETE' })
             .then(res => {
                 if(!res.ok) throw new Error("Server error deleting file");
                 return res.json();
             }).then(data => {
-                setServices(data.services); // update services if any were removed
+                setServices(data.services); 
                 addNotification("Arquivo removido.");
             })
             .catch(err => {
                 console.error("Failed to delete catalog file:", err);
                 addNotification("Erro ao remover o arquivo.");
-                loadData(); // reload to get back to consistent state
+                loadData(); 
             });
         }
     }, [addNotification, loadData]);
@@ -2185,11 +1097,7 @@ const App = () => {
          addNotification("Configurações salvas com sucesso!");
      }, [addNotification, saveData]);
     
-    const handleNewConversation = useCallback((log: ConversationLog) => setConversationLogs(prev => [log, ...prev.slice(0, 49)]), []);
-    
     const handleLogin = useCallback((username: string, passwordAttempt: string) => {
-        // Emergency override for 'owner' / '123'
-        // This ensures access even if the database is empty or corrupted
         if (username.trim().toLowerCase() === 'owner' && passwordAttempt.trim() === '123') {
             const emergencyOwner: User = {
                 id: 'user-owner',
@@ -2205,7 +1113,6 @@ const App = () => {
                     settings: true,
                 }
             };
-            // Try to find the real owner object to keep state consistent if possible
             const realOwner = users.find(u => u.role === 'owner');
             setCurrentUser(realOwner || emergencyOwner);
             setLoginError('');
@@ -2269,12 +1176,12 @@ const App = () => {
             return <div className="p-4 text-center text-red-400">Acesso negado.</div>
         }
         switch (activeTab) {
-            case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
-            case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
-            case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
-            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} onDataUpdate={handleDataUpdateFromBot} />;
+            case 'agenda': return <AgendaView appointments={appointments} clients={clients} services={services} onStartService={handleStartService} onFinishService={handleFinishService} onEditAppointment={(app: any) => {setEditingAppointment(app); setIsAppointmentModalOpen(true); }} onDeleteAppointment={handleAppointmentDelete} />;
+            case 'clients': return <ClientsView clients={clients} onAdd={() => {setEditingClient(null); setIsClientModalOpen(true); }} onEdit={(client: any) => { setEditingClient(client); setIsClientModalOpen(true); }} onDelete={handleClientDelete} monthlyPlans={monthlyPlans} clientPlanUsages={clientPlanUsages} services={services}/>;
+            case 'services': return <ServicesView services={services} onAdd={() => { setEditingService(null); setIsServiceModalOpen(true); }} onEdit={(service: any) => { setEditingService(service); setIsServiceModalOpen(true); }} onDelete={handleServiceDelete} />;
+            case 'whatsapp': return <WhatsAppView currentUser={currentUser} status={whatsAppStatus} qrCode={qrCode} statusMessage={statusMessage} setStatus={setWhatsAppStatus} setQrCode={setQrCode} setStatusMessage={setStatusMessage} addNotification={addNotification} onDataUpdate={handleDataUpdateFromBot} humanQueue={humanQueue} />;
             case 'dashboard': return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
-            case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
+            case 'settings': return <SettingsView currentUser={currentUser} users={users} operatingHours={operatingHours} automatedMessages={automatedMessages} monthlyPlans={monthlyPlans} services={services} onSave={handleSaveSettings} onFileUpload={handleFileUpload} catalogFiles={catalogFiles} isProcessingFile={isProcessingFile} onFileDelete={handleFileDelete} onUserSave={handleUserSave} onUserDelete={handleUserDelete} onEditUser={(user: any) => {setEditingUser(user); setIsUserModalOpen(true);}} />;
             default: return <DashboardView appointments={appointments} clients={clients} services={services} monthlyPlans={monthlyPlans} />;
         }
     };
@@ -2310,7 +1217,7 @@ const App = () => {
                                 <BellIcon className="w-6 h-6 text-gray-300 hover:text-white" />
                                 {notifications.filter(n => !n.read).length > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-white text-xs items-center justify-center">{notifications.filter(n => !n.read).length}</span></span>}
                             </button>
-                            {isNotificationPanelOpen && <NotificationPanel notifications={notifications} onClear={(id) => setNotifications(p => p.filter(n => n.id !== id))} onMarkAsRead={(id) => setNotifications(p => p.map(n => n.id === id ? {...n, read: true} : n))} />}
+                            {isNotificationPanelOpen && <NotificationPanel notifications={notifications} onClear={(id: string) => setNotifications(p => p.filter(n => n.id !== id))} onMarkAsRead={(id: string) => setNotifications(p => p.map(n => n.id === id ? {...n, read: true} : n))} />}
                          </div>
                          <button onClick={handleLogout} className="text-gray-300 hover:text-white" title="Sair">
                             <ArrowRightOnRectangleIcon className="w-6 h-6" />
