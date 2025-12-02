@@ -1,3 +1,4 @@
+
 // Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
@@ -605,9 +606,20 @@ const getAvailableSlots = () => {
 };
 
 const handleBotLogic = async (senderJid, message, senderName) => {
-    let session = aistudio.chatbot_sessions[senderJid] || { state: 'GREETING' };
+    let session = aistudio.chatbot_sessions[senderJid];
     const normalizedMessage = normalizeText(message);
     const clientNumber = senderJid.split('@')[0];
+    
+    // --- NOTIFICATION HELPER ---
+    const notifyFrontend = (message) => {
+        waEvents.emit('event', { type: 'notification', message });
+    };
+
+    if (!session) {
+        session = { state: 'GREETING' };
+        // New contact notification
+        notifyFrontend(`Cliente ${senderName} entrou em contato`);
+    }
     
     // IMPORTANT: Check for Human Support State First
     if (session.state === 'HUMAN_SUPPORT') {
@@ -628,11 +640,16 @@ const handleBotLogic = async (senderJid, message, senderName) => {
         aistudio.chatbot_sessions[senderJid] = session;
         saveDb();
         
-        // Notify owner via "SMS" (Message to self)
+        // Notify owner via "SMS" (Message to self) and Frontend Notification
+        const notificationText = `Cliente ${clientNumber} quer tirar duvida`; // SMS text format
+        const frontendNotification = `Cliente ${senderName} quer tirar duvida`; // Frontend notification format
+        
         if (sock && sock.user) {
             const ownerJid = jidNormalizedUser(sock.user.id);
-            await sock.sendMessage(ownerJid, { text: `Cliente ${clientNumber} (${senderName}) quer tirar dúvida.` });
+            await sock.sendMessage(ownerJid, { text: notificationText });
         }
+        
+        notifyFrontend(frontendNotification);
         
         await sendBotMessage("Certo! Encaminhei sua solicitação para nosso atendimento. Em breve um atendente irá falar com você por aqui.");
     };
@@ -760,11 +777,13 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 const appointmentId = session.existingAppointmentId;
                 aistudio.appointments = aistudio.appointments.filter(a => a.id !== appointmentId);
                 await sendBotMessage("Seu agendamento foi cancelado com sucesso. O horário agora está disponível novamente. Se precisar de algo mais, é só chamar!");
+                notifyFrontend(`Cliente ${senderName} cancelou agendamento`);
                 notifyFrontendOfDbChange();
                 resetSession();
             } else if (normalizedMessage.includes('alterar')) {
                 const appointment = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
                 session.serviceId = appointment.serviceIds[0]; 
+                session.isReschedule = true;
                 await sendBotMessage("Ok, vamos alterar. " + getAvailableSlots());
                 session.state = 'AWAITING_DATETIME_FOR_CHANGE';
             } else if (normalizedMessage.includes('prosseguir')) {
@@ -1041,6 +1060,15 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                     aistudio.appointments.push({ ...appointmentData, id: `a${Date.now()}`});
                 }
                 notifyFrontendOfDbChange();
+                
+                const confirmationDate = new Date(`${session.date}T${session.time}`);
+                const formattedDate = confirmationDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
+                
+                if (session.isReschedule) {
+                     notifyFrontend(`Cliente ${senderName} alterou horário`);
+                } else {
+                     notifyFrontend(`Cliente ${senderName} agendou ${formattedDate} e ${session.time}`);
+                }
                 
                 // End flow option - Ask for doubts
                 await sendBotMessage("Agendamento confirmado com sucesso! Muito obrigado por escolher a CAR CLASS.\n\nDeseja encerrar o atendimento ou tem mais alguma dúvida?\n\n1. Encerrar\n2. Tirar Dúvidas");
