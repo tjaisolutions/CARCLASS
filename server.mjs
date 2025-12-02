@@ -1,24 +1,20 @@
 
-// Fix: Removed TypeScript type imports as this file is run directly by Node.js.
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
-// Removed unused mongoose import
 import { EventEmitter } from 'events';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, jidNormalizedUser } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode';
-
 
 // --- SETUP ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.RENDER_DISK_PATH || path.join(__dirname, 'data');
 const DIST_DIR = path.join(__dirname, 'dist');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
-
 
 if (!fs.existsSync(DATA_DIR)) {
   console.log(`[Persistence] Criando diretório de dados em: ${DATA_DIR}`);
@@ -29,1114 +25,703 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+// --- DATA MANAGEMENT ---
+const DB_FILE = path.join(DATA_DIR, 'db.json');
 
-export const app = express();
-const port = process.env.PORT || 3001;
-const apiRouter = express.Router();
-const upload = multer({ dest: UPLOADS_DIR });
-
-
-// --- GERENCIAMENTO DE ESTADO SIMPLIFICADO ---
-const DB_FILE_PATH = path.join(DATA_DIR, 'db.json');
-let aistudio;
-
-const getInitialState = () => ({
-    clients: [],
-    services: [],
-    appointments: [],
-    monthlyPlans: [],
-    clientPlanUsages: [],
-    operatingHours: {
-        daysOpen: [1, 2, 3, 4, 5, 6],
-        availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
-    },
-    automatedMessages: [],
-    users: [{ 
-        id: 'user-owner', 
-        username: 'owner', 
-        password: '123', 
-        role: 'owner', 
-        permissions: {
-            dashboard: true,
-            agenda: true,
-            clients: true,
-            services: true,
-            whatsapp: true,
-            settings: true,
-        } 
-    }],
-    conversationLogs: [],
-    catalogFiles: [],
-    wa_chats: {}, 
-    // Chatbot state tracking
-    chatbot_sessions: {},
-});
-
-
-const loadDb = () => {
-    let loadedData = {};
-    if (fs.existsSync(DB_FILE_PATH)) {
-        try {
-            console.log('[Persistence] Carregando dados do arquivo...');
-            const fileContent = fs.readFileSync(DB_FILE_PATH, 'utf-8');
-            if (fileContent.trim() !== '') {
-                loadedData = JSON.parse(fileContent);
-            }
-        } catch (error) {
-            console.error('[Persistence] ERRO CRÍTICO ao ler ou analisar db.json:', error);
-            const backupPath = path.join(DATA_DIR, `db.corrupted.${Date.now()}.json`);
-            if (fs.existsSync(DB_FILE_PATH)) {
-                fs.copyFileSync(DB_FILE_PATH, backupPath);
-                console.warn(`[Persistence] Backup do arquivo corrompido salvo em: ${backupPath}`);
-            }
-            loadedData = {}; // Start fresh on corruption
-        }
-    }
-
-    // Initialize with default state, then merge loaded data over it.
-    aistudio = { ...getInitialState(), ...loadedData };
-
-    // --- DATA SANITIZATION & RECOVERY ---
-    // This routine ensures the primary 'owner' user can always log in.
-    const ownerTemplate = getInitialState().users[0];
-    
-    // Ensure 'users' is an array.
-    if (!aistudio.users || !Array.isArray(aistudio.users)) {
-        aistudio.users = [];
-    }
-
-    // Find if owner exists by username OR by ID
-    const ownerIndex = aistudio.users.findIndex(u => u.username === 'owner' || u.id === 'user-owner');
-
-    if (ownerIndex !== -1) {
-        // Restore critical credentials. We KEEP the user ID consistent if it was different, 
-        // but enforce the 'owner' username and '123' password.
-        aistudio.users[ownerIndex] = {
-            ...aistudio.users[ownerIndex], 
-            id: 'user-owner', // Enforce standard ID
-            username: 'owner', 
-            password: '123',
-            role: 'owner',
-            permissions: ownerTemplate.permissions, // Restore full permissions
-        };
-        console.log('[Persistence] Usuário "owner" verificado e restaurado para o padrão.');
-    } else {
-        // If owner does not exist at all, add it back.
-        aistudio.users.unshift(ownerTemplate);
-        console.log('[Persistence] Usuário "owner" não encontrado. Adicionando ao sistema.');
-    }
-    
-    // Deduplicate users based on ID or Username to prevent conflicts
-    const seenIds = new Set();
-    const seenUsernames = new Set();
-    aistudio.users = aistudio.users.filter(u => {
-        const isDuplicate = seenIds.has(u.id) || seenUsernames.has(u.username);
-        seenIds.add(u.id);
-        seenUsernames.add(u.username);
-        return !isDuplicate;
-    });
-
-    // Ensure other critical properties exist
-    if (!aistudio.wa_chats) aistudio.wa_chats = {};
-    if (!aistudio.chatbot_sessions) aistudio.chatbot_sessions = {};
-    if (!aistudio.catalogFiles) aistudio.catalogFiles = [];
-
-    saveDb(); // Save immediately to ensure the owner fix is persisted
+const defaultDb = {
+  clients: [],
+  appointments: [],
+  services: [],
+  monthlyPlans: [],
+  clientPlanUsages: [],
+  users: [],
+  operatingHours: {
+    daysOpen: [1, 2, 3, 4, 5, 6],
+    availableTimes: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
+  },
+  automatedMessages: [],
+  catalogFiles: [],
+  conversationLogs: []
 };
+
+let db = { ...defaultDb };
+
+// Load DB
+if (fs.existsSync(DB_FILE)) {
+  try {
+    const raw = fs.readFileSync(DB_FILE, 'utf-8');
+    db = { ...defaultDb, ...JSON.parse(raw) };
+    console.log('[Persistence] Banco de dados carregado.');
+  } catch (err) {
+    console.error('[Persistence] Erro ao carregar DB:', err);
+  }
+} else {
+  // Create initial owner user if not exists
+  db.users.push({
+      id: 'user-owner',
+      username: 'owner',
+      password: '123',
+      role: 'owner',
+      permissions: {
+          dashboard: true,
+          agenda: true,
+          clients: true,
+          services: true,
+          whatsapp: true,
+          settings: true,
+      }
+  });
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
 
 const saveDb = () => {
-    try {
-        fs.writeFileSync(DB_FILE_PATH, JSON.stringify(aistudio, null, 2));
-    } catch (error) {
-        console.error('[Persistence] ERRO ao salvar dados:', error);
-    }
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    // Notify frontend immediately upon save
+    notifyFrontendOfDbChange(); 
+  } catch (err) {
+    console.error('[Persistence] Erro ao salvar DB:', err);
+  }
 };
 
-loadDb();
+// --- EVENTS ---
+const eventEmitter = new EventEmitter();
+const NOTIFICATION_EVENT = 'notification';
+const DB_CHANGE_EVENT = 'db_change';
+const WA_STATUS_CHANGE = 'wa_status_change';
+const WA_MESSAGE = 'wa_message';
 
+const notifyFrontendOfDbChange = () => {
+    eventEmitter.emit(DB_CHANGE_EVENT, db);
+};
 
-// --- MIDDLEWARE ---
-// @ts-ignore
+// --- EXPRESS APP ---
+const app = express();
 app.use(express.json());
-// Serve static files from the uploads directory
-// @ts-ignore
-app.use('/uploads', express.static(UPLOADS_DIR));
 
+// API Routes
+app.get('/api/data', (req, res) => res.json(db));
 
-// --- API ROUTES ---
-apiRouter.get('/data', (req, res) => {
-    res.json(aistudio);
+app.post('/api/data', (req, res) => {
+  const newData = req.body;
+  // Merge logic
+  if (newData.clients) db.clients = newData.clients;
+  if (newData.appointments) db.appointments = newData.appointments;
+  if (newData.services) db.services = newData.services;
+  if (newData.monthlyPlans) db.monthlyPlans = newData.monthlyPlans;
+  if (newData.users) db.users = newData.users;
+  if (newData.operatingHours) db.operatingHours = newData.operatingHours;
+  if (newData.automatedMessages) db.automatedMessages = newData.automatedMessages;
+  
+  saveDb();
+  res.json({ success: true });
 });
 
-apiRouter.post('/data', (req, res) => {
-    for (const key in req.body) {
-        if (Object.prototype.hasOwnProperty.call(aistudio, key)) {
-            aistudio[key] = req.body[key];
-        }
-    }
-    saveDb();
-    res.status(200).json({ message: 'Dados salvos com sucesso!' });
+// Catalog Upload
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  filename: (req, file, cb) => cb(null, `catalog-${Date.now()}-${file.originalname}`)
 });
+const upload = multer({ storage });
 
-// @ts-ignore
-apiRouter.post('/upload-catalog', upload.array('catalogs'), (req, res) => {
-    if (!req.files) {
-        return res.status(400).send('Nenhum arquivo enviado.');
-    }
-    const newFiles = req.files.map(file => ({
-        id: file.filename,
-        path: file.path,
-        file: {
-            name: file.originalname,
-            type: file.mimetype,
-        }
-    }));
-    aistudio.catalogFiles.push(...newFiles);
-    saveDb();
-
-    // Respond with the updated list for frontend sync
-    res.status(200).json({
-        catalogFiles: aistudio.catalogFiles,
-        services: aistudio.services, // Also send services in case they are derived from this
-    });
-});
-
-apiRouter.delete('/delete-catalog/:fileId', (req, res) => {
-    const { fileId } = req.params;
-    const fileIndex = aistudio.catalogFiles.findIndex(f => f.id === fileId);
-
-    if (fileIndex > -1) {
-        const fileToDelete = aistudio.catalogFiles[fileIndex];
-        // Delete from filesystem
-        if (fs.existsSync(fileToDelete.path)) {
-            fs.unlinkSync(fileToDelete.path);
-        }
-        // Remove from DB
-        aistudio.catalogFiles.splice(fileIndex, 1);
-        saveDb();
-        res.status(200).json({ services: aistudio.services }); // Send back potentially updated services
-    } else {
-        res.status(404).send('Arquivo não encontrado.');
-    }
-});
-
-
-// --- GEMINI API SETUP ---
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-async function runGemini(prompt) {
+app.post('/api/upload-catalog', upload.array('catalogs'), async (req, res) => {
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json'
-            }
+        const newFiles = req.files.map(f => ({
+            id: path.parse(f.filename).name,
+            file: { name: f.originalname, type: f.mimetype, path: f.filename }
+        }));
+        db.catalogFiles.push(...newFiles);
+        
+        // Mock processing: Add a dummy service based on file name
+        // In production, use Gemini to parse PDF/Image
+        req.files.forEach(f => {
+             db.services.push({
+                 id: `svc-${Date.now()}`,
+                 name: `Serviço extraído de ${f.originalname}`,
+                 description: 'Gerado automaticamente via upload de catálogo.',
+                 duration: 60,
+                 price: 100,
+                 sourceFileId: path.parse(f.filename).name
+             });
         });
-        return JSON.parse(response.text);
+
+        saveDb();
+        res.json({ success: true, services: db.services, catalogFiles: db.catalogFiles });
     } catch (e) {
-        console.error("Gemini API error:", e);
-        return { error: "Failed to process request with AI." };
+        console.error(e);
+        res.status(500).json({ error: 'Upload failed' });
     }
-}
+});
 
+app.delete('/api/delete-catalog/:id', (req, res) => {
+    const fileId = req.params.id;
+    const fileIndex = db.catalogFiles.findIndex(f => f.id === fileId);
+    if(fileIndex > -1) {
+        const fileEntry = db.catalogFiles[fileIndex];
+        try {
+            fs.unlinkSync(path.join(UPLOADS_DIR, fileEntry.file.path));
+        } catch(e) { console.error("Error deleting file from disk", e); }
+        
+        db.catalogFiles.splice(fileIndex, 1);
+        // Remove associated services
+        db.services = db.services.filter(s => s.sourceFileId !== fileId);
+        
+        saveDb();
+        res.json({ success: true, services: db.services });
+    } else {
+        res.status(404).json({ error: 'Not found' });
+    }
+});
 
-// --- WHATSAPP BOT (BAILEYS) ---
-let sock = null;
-const SESSION_DIR = path.join(DATA_DIR, 'whatsapp_session');
-const waEvents = new EventEmitter();
-waEvents.setMaxListeners(0); // Unlimited listeners for long-polling
+// --- WHATSAPP LOGIC ---
+let sock;
+let qrCodeData = null;
+let connectionStatus = 'disconnected';
+let statusMessage = 'Iniciando...';
+const sessions = new Map(); // Stores conversation state per chatId
+const contactStore = new Map(); // Stores contact names: jid -> name
 
-let waConnectionStatus = { 
-    isConnected: false, 
-    message: 'Inicializando...', 
-    qrCode: null 
-};
+// Helper: Normalize JID
+const getJid = (msg) => msg.key.remoteJid;
 
-const normalizeText = (text = '') => text ? text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
-
-const sendMessageWTyping = async (jid, text) => {
+// Helper: Send text message
+const sendText = async (jid, text) => {
     if (!sock) return;
-    try {
-        await sock.presenceSubscribe(jid);
-        await sock.sendPresenceUpdate('composing', jid);
-        await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
-        await sock.sendPresenceUpdate('paused', jid);
-        await sock.sendMessage(jid, { text });
-    } catch (err) {
-        console.error(`[WhatsApp] Erro ao enviar mensagem para ${jid}:`, err);
-    }
-};
-
-const startWhatsApp = async () => {
-    try {
-        const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
-        const { version } = await fetchLatestBaileysVersion();
-        
-        console.log(`[WhatsApp] Usando Baileys v${version.join('.')}`);
-
-        sock = makeWASocket({
-            version,
-            auth: state,
-            logger: pino({ level: 'silent' }),
-            browser: ['CARCLASS', 'Chrome', '1.0.0'],
-            printQRInTerminal: false,
-            syncFullHistory: true, // Request full history
-        });
-
-        sock.ev.on('creds.update', saveCreds);
-
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-            
-            if(qr) {
-                waConnectionStatus = { isConnected: false, message: 'Escaneie o QR Code para conectar', qrCode: await qrcode.toDataURL(qr) };
-                waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
-            }
-            
-            if(connection === 'close') {
-                const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-                waConnectionStatus = { isConnected: false, message: 'Desconectado. Tentando reconectar...', qrCode: null };
-                console.log('[WhatsApp] Conexão fechada, motivo:', lastDisconnect.error, ', reconectando:', shouldReconnect);
-                waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
-                
-                if(shouldReconnect) {
-                    setTimeout(startWhatsApp, 3000);
-                } else {
-                    // Logged out, clear session
-                    if (fs.existsSync(SESSION_DIR)) {
-                        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-                    }
-                    waConnectionStatus.message = 'Desconectado. Por favor, escaneie um novo QR Code.';
-                    setTimeout(startWhatsApp, 1000); 
-                }
-            } else if(connection === 'open') {
-                waConnectionStatus = { isConnected: true, message: 'Conectado com sucesso!', qrCode: null };
-                console.log('[WhatsApp] Conexão aberta.');
-                waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
-            }
-        });
-
-        sock.ev.on('messages.upsert', async (m) => {
-            // Process ALL messages in the upsert event (fixes history sync issues)
-            for (const msg of m.messages) {
-                if (!msg.message) continue;
-
-                const senderJid = msg.key.remoteJid;
-                // Ignore status updates
-                if (senderJid === 'status@broadcast') continue;
-
-                const senderName = msg.pushName || senderJid.split('@')[0];
-                const messageBody = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-                
-                // --- SAVE MESSAGE ---
-                // We want to save both incoming and outgoing (fromMe) messages so the chat is complete.
-                if (!aistudio.wa_chats[senderJid]) {
-                    aistudio.wa_chats[senderJid] = [];
-                }
-
-                // Check for duplicates to avoid adding the same message twice (upserts can happen multiple times)
-                // We use timestamp and id as unique identifiers.
-                const alreadyExists = aistudio.wa_chats[senderJid].some(storedMsg => 
-                    storedMsg.id.remote === senderJid && 
-                    storedMsg.id.fromMe === msg.key.fromMe &&
-                    (storedMsg.id.id === msg.key.id || Math.abs(storedMsg.timestamp - (msg.messageTimestamp || Date.now()/1000)) < 2)
-                );
-
-                if (!alreadyExists) {
-                     const messageToStore = {
-                        id: { fromMe: msg.key.fromMe, remote: senderJid, id: msg.key.id },
-                        body: messageBody,
-                        timestamp: msg.messageTimestamp || Date.now() / 1000,
-                        isBot: false, 
-                    };
-                    aistudio.wa_chats[senderJid].push(messageToStore);
-                    // Notify frontend
-                    waEvents.emit('event', { type: 'message', data: messageToStore, senderName });
-                    
-                    // Only save DB periodically or on important events could be better, but for MVP saving here is safer.
-                    saveDb(); 
-                }
-
-                // --- CHATBOT LOGIC ---
-                // Only run bot logic for incoming messages that are NOT from the bot itself
-                if (!msg.key.fromMe && messageBody) {
-                    console.log(`[WhatsApp] Mensagem de ${senderName}: "${messageBody}"`);
-                    await handleBotLogic(senderJid, messageBody, senderName);
-                }
-            }
-        });
-
-    } catch (error) {
-        console.error('[WhatsApp] Erro fatal ao iniciar:', error);
-        // Force cleanup and retry if session is corrupted
-        if (fs.existsSync(SESSION_DIR)) {
-            try {
-                fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-            } catch(e) {}
-        }
-        setTimeout(startWhatsApp, 5000);
-    }
-};
-
-// --- WHATSAPP API ROUTES ---
-apiRouter.get('/whatsapp/status', (req, res) => {
-    res.json(waConnectionStatus);
-});
-
-apiRouter.get('/whatsapp/events', (req, res) => {
-    const handler = (event) => {
-        if (!res.headersSent) {
-            res.json(event);
-        }
+    await sock.sendMessage(jid, { text });
+    
+    // Emit message to frontend for chat view
+    const waMessage = {
+        id: { fromMe: true, remote: jid },
+        body: text,
+        timestamp: Date.now() / 1000,
+        isBot: true
     };
-    waEvents.once('event', handler);
-    // Clean up listener if client disconnects
-    // @ts-ignore
-    req.on('close', () => {
-        waEvents.removeListener('event', handler);
-    });
-});
+    eventEmitter.emit(WA_MESSAGE, waMessage, 'Bot');
+};
 
-apiRouter.get('/whatsapp/chats', (req, res) => {
-     const chats = Object.keys(aistudio.wa_chats).map(chatId => {
-        const messages = aistudio.wa_chats[chatId];
-        const lastMessage = messages[messages.length - 1];
-        // A simple way to get a name. In a real app, you'd store contact names.
-        const contact = aistudio.clients.find(c => c.whatsapp === chatId.split('@')[0]);
-        const session = aistudio.chatbot_sessions[chatId];
+// --- NLP HELPERS ---
+const normalizeString = (str) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+const parseNaturalLanguageDate = (input) => {
+    const text = normalizeString(input);
+    const now = new Date();
+    let targetDate = new Date();
+    let targetHour = null;
+    let targetMinute = 0;
+
+    // Map weekdays
+    const weekDays = {
+        'domingo': 0, 'segunda': 1, 'terca': 2, 'quarta': 3, 'quinta': 4, 'sexta': 5, 'sabado': 6
+    };
+    
+    // Map number words
+    const numberWords = {
+        'uma': 1, 'um': 1, 'duas': 2, 'dois': 2, 'tres': 3, 'quatro': 4, 'cinco': 5, 
+        'seis': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'dez': 10, 'onze': 11, 'doze': 12,
+        'meio dia': 12, 'meia noite': 0
+    };
+
+    // 1. Detect Day
+    let dayFound = false;
+    for (const [dayName, dayIndex] of Object.entries(weekDays)) {
+        if (text.includes(dayName)) {
+            const currentDay = now.getDay();
+            let daysUntil = dayIndex - currentDay;
+            if (daysUntil <= 0) daysUntil += 7; // Next occurrence
+            targetDate.setDate(now.getDate() + daysUntil);
+            dayFound = true;
+            break;
+        }
+    }
+    
+    // If no day specified, assume today if logic allows, or handle "amanhã"
+    if (!dayFound) {
+        if (text.includes('amanha')) {
+            targetDate.setDate(now.getDate() + 1);
+        } else if (text.includes('hoje')) {
+            // targetDate stays today
+        }
+        // If neither, we might just be setting time for today (if future) or tomorrow
+    }
+
+    // 2. Detect Time
+    // Regex for "HH:MM" or "HH hours" or "HH"
+    const timeRegex = /(\d{1,2})(:(\d{2}))?\s*(h|horas|hrs)?/i;
+    const match = text.match(timeRegex);
+    
+    if (match) {
+        targetHour = parseInt(match[1]);
+        if (match[3]) targetMinute = parseInt(match[3]);
+    } else {
+        // Try word numbers
+        for (const [word, num] of Object.entries(numberWords)) {
+            // Look for "as [word]" or just "[word] da tarde"
+            if (text.includes(word)) {
+                targetHour = num;
+                break; // Take first found
+            }
+        }
+    }
+
+    // 3. Adjust for PM
+    if (targetHour !== null) {
+        if ((text.includes('tarde') || text.includes('noite')) && targetHour < 12 && targetHour !== 0) {
+            targetHour += 12;
+        }
+        // Adjust "11 da manha" explicitly if needed (usually default)
+        
+        // Construct ISO String part
+        const yyyy = targetDate.getFullYear();
+        const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(targetDate.getDate()).padStart(2, '0');
+        
+        const hh = String(targetHour).padStart(2, '0');
+        const min = String(targetMinute).padStart(2, '0');
+        
         return {
-            id: chatId,
-            name: contact?.name || chatId.split('@')[0],
-            lastMessage: {
-                body: lastMessage?.body || '',
-                timestamp: lastMessage?.timestamp || 0
-            },
-            isHumanSupport: session?.state === 'HUMAN_SUPPORT'
+            date: `${yyyy}-${mm}-${dd}`,
+            time: `${hh}:${min}`,
+            formatted: `${dd}/${mm}/${yyyy} às ${hh}:${min}`
         };
-    }).sort((a, b) => b.lastMessage.timestamp - a.lastMessage.timestamp);
-    res.json(chats);
-});
-
-apiRouter.get('/whatsapp/messages/:chatId', (req, res) => {
-    const { chatId } = req.params;
-    const messages = aistudio.wa_chats[chatId] || [];
-    res.json(messages);
-});
-
-apiRouter.post('/whatsapp/send-message', async (req, res) => {
-    if (!sock || !waConnectionStatus.isConnected) {
-        return res.status(400).json({ error: "WhatsApp não está conectado." });
     }
-    const { chatId, message } = req.body;
-    try {
-        await sock.sendMessage(chatId, { text: message });
-        
-        if (!aistudio.wa_chats[chatId]) aistudio.wa_chats[chatId] = [];
-        const messageToStore = {
-            id: { fromMe: true, remote: chatId },
-            body: message,
-            timestamp: Date.now() / 1000,
-            isBot: false
-        };
-        aistudio.wa_chats[chatId].push(messageToStore);
-        saveDb();
-        
-        res.status(200).json({ success: true });
-    } catch (error) {
-        console.error("Erro ao enviar mensagem:", error);
-        res.status(500).json({ error: "Falha ao enviar mensagem." });
-    }
-});
 
-apiRouter.post('/whatsapp/resolve-support', async (req, res) => {
-    const { chatId } = req.body;
-    if (aistudio.chatbot_sessions[chatId]) {
-        // Reset session so next message triggers chatbot from start or a clean state
-        delete aistudio.chatbot_sessions[chatId];
-        saveDb();
-    }
-    res.status(200).json({ success: true });
-});
-
-// Mount the API router
-app.use('/api', apiRouter);
-
-
-// --- CHATBOT IMPLEMENTATION ---
-
-// Helper functions for the bot
-// Using Brazil time for accurate scheduling
-const getBrazilDate = () => new Date(new Date().toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
-
-const normalizeCPF = (cpf) => cpf.replace(/[^\d]/g, '');
-const findClientByCpf = (cpf) => aistudio.clients.find(c => normalizeCPF(c.cpf) === normalizeCPF(cpf));
-const getClientUpcomingAppointment = (clientId) => {
-    const today = getBrazilDate().toISOString().split('T')[0];
-    return aistudio.appointments
-        .filter(a => a.clientId === clientId && a.date >= today && a.status !== 'Finalizado')
-        .sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time))[0];
+    return null;
 };
 
-const parseDateTime = (text) => {
-    const now = getBrazilDate();
-    const normalizedText = normalizeText(text.replace(/ as /g, ' '));
+// --- CHATBOT STATE MACHINE ---
+const handleBotLogic = async (msg) => {
+    const remoteJid = getJid(msg);
+    if (!remoteJid || msg.key.fromMe) return;
 
-    const monthMap = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11, janeiro: 0, fevereiro: 1, marco: 2, abril: 3, maio: 4, junho: 5, julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11 };
-    const weekdayMap = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
-
-    let day, month, year = now.getFullYear(), hour, minute = 0;
-
-    const timeMatch = normalizedText.match(/(\d{1,2})[:h](\d{2})?/);
-    if (timeMatch) {
-        hour = parseInt(timeMatch[1], 10);
-        minute = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-    } else {
-        return null; // Time is mandatory
-    }
-
-    const dayMonthMatch = normalizedText.match(/(\d{1,2})\s+de\s+([a-z]+)/);
-    const dayOnlyMatch = normalizedText.match(/dia\s+(\d{1,2})/);
-    const weekdayMatch = normalizedText.match(/(seg|ter|qua|qui|sex|sab|dom)/);
-
-    if (dayMonthMatch) {
-        day = parseInt(dayMonthMatch[1], 10);
-        const monthStr = dayMonthMatch[2].substring(0, 3);
-        if (monthMap.hasOwnProperty(monthStr)) month = monthMap[monthStr];
-    } else if (dayOnlyMatch) {
-        day = parseInt(dayOnlyMatch[1], 10);
-        month = now.getDate() > day ? now.getMonth() + 1 : now.getMonth();
-    } else if (weekdayMatch) {
-        const targetWeekday = weekdayMap[weekdayMatch[1]];
-        const tempDate = getBrazilDate();
-        tempDate.setDate(tempDate.getDate() + (targetWeekday + 7 - tempDate.getDay()) % 7);
-        day = tempDate.getDate();
-        month = tempDate.getMonth();
-        year = tempDate.getFullYear();
-    } else {
-        return null; // Day/Month context is missing
-    }
-
-    if (day === undefined || month === undefined) return null;
+    // Extract text content
+    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
+    if (!text) return;
     
-    const targetDate = new Date(year, month, day);
-    if (targetDate < now && targetDate.toDateString() !== now.toDateString()) {
-        year++;
-    }
-
-    const dateObj = new Date(year, month, day, hour, minute);
-    if (isNaN(dateObj.getTime())) return null;
-
-    return {
-        date: dateObj.toISOString().split('T')[0],
-        time: dateObj.toTimeString().substring(0, 5)
-    };
-};
-
-const isSlotAvailable = (dateString, timeString) => {
-    const { operatingHours, appointments } = aistudio;
-    const targetDate = new Date(`${dateString}T00:00:00`); 
-    const dayOfWeek = targetDate.getDay(); // Sun=0, Sat=6
-
-    // 1. Check if day is open
-    if (!operatingHours.daysOpen.includes(dayOfWeek)) return false;
-    // 2. Check if time is in list
-    if (!operatingHours.availableTimes.includes(timeString)) return false;
-
-    // 3. Check if time has passed (for today) using Brazil time
-    const now = getBrazilDate();
-    const todayString = now.toISOString().split('T')[0];
+    // Check if Human Support is active for this SPECIFIC chat
+    let session = sessions.get(remoteJid);
     
-    if (dateString === todayString) {
-        const [h, m] = timeString.split(':').map(Number);
-        const slotDate = getBrazilDate();
-        slotDate.setHours(h, m, 0, 0);
-        
-        // If the slot time is before "now", it's not available
-        if (slotDate < now) return false;
-    }
+    // Retrieve Contact Name (Priority: Address Book > PushName > ID)
+    let contactName = contactStore.get(remoteJid) || msg.pushName || remoteJid.split('@')[0];
 
-    // 4. Check if booked
-    const isBooked = appointments.some(app => app.date === dateString && app.time === timeString && app.status !== 'Finalizado');
-    return !isBooked;
-};
-
-const getAvailableSlots = () => {
-    const { operatingHours, appointments } = aistudio;
-    let availableSlotsMessage = "Estes são os nossos próximos dias e horários disponíveis:\n\n";
-    let daysFound = 0;
-    const distinctDays = new Set();
-    const now = getBrazilDate();
-    const todayString = now.toISOString().split('T')[0];
-
-    for (let i = 0; i < 14 && daysFound < 5; i++) {
-        const day = getBrazilDate();
-        day.setDate(day.getDate() + i);
-        const dayOfWeek = day.getDay();
-
-        if (operatingHours.daysOpen.includes(dayOfWeek)) {
-            const dateString = day.toISOString().split('T')[0];
-            if (distinctDays.has(dateString)) continue;
-
-            const todaysAppointments = appointments.filter(a => a.date === dateString && a.status !== 'Finalizado');
-            const bookedTimes = todaysAppointments.map(a => a.time);
-            
-            // Filter base available times
-            let availableForDay = operatingHours.availableTimes.filter(t => !bookedTimes.includes(t));
-
-            // Extra filter for TODAY: remove passed hours
-            if (dateString === todayString) {
-                availableForDay = availableForDay.filter(t => {
-                    const [h, m] = t.split(':').map(Number);
-                    const slotDate = getBrazilDate();
-                    slotDate.setHours(h, m, 0, 0);
-                    return slotDate > now;
-                });
-            }
-
-            if (availableForDay.length > 0) {
-                const dayLabel = day.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
-                availableSlotsMessage += `*${dayLabel}*:\n${availableForDay.join('h, ')}h\n\n`;
-                daysFound++;
-                distinctDays.add(dateString);
-            }
-        }
-    }
-    return daysFound > 0 ? availableSlotsMessage : "Desculpe, não temos horários disponíveis nos próximos dias. Por favor, entre em contato para verificar a disponibilidade.";
-};
-
-const handleBotLogic = async (senderJid, message, senderName) => {
-    let session = aistudio.chatbot_sessions[senderJid];
-    const normalizedMessage = normalizeText(message);
-    const clientNumber = senderJid.split('@')[0];
-    
-    // --- NOTIFICATION HELPER ---
-    const notifyFrontend = (message) => {
-        waEvents.emit('event', { type: 'notification', message });
-    };
-
+    // Initialize session if new
     if (!session) {
-        session = { state: 'GREETING' };
-        // New contact notification
-        notifyFrontend(`Cliente ${senderName} entrou em contato`);
+        session = { state: 'START', tempData: { name: contactName } };
+        sessions.set(remoteJid, session);
     }
     
-    // IMPORTANT: Check for Human Support State First
+    // *** HUMAN SUPPORT CHECK ***
+    // If this specific user is in human support mode, the bot does NOTHING.
     if (session.state === 'HUMAN_SUPPORT') {
-        return; // Bot does nothing, human must answer
+        return; 
     }
 
-    if (session.state === 'CONVERSATION_ENDED' && message) {
-        session = { state: 'GREETING' };
+    // --- STATE HANDLERS ---
+
+    // 1. START
+    if (session.state === 'START') {
+        const welcomeMsg = `Olá, ${contactName}! Bem-vindo à *CAR CLASS*.
+Eu sou o assistente virtual. Como posso ajudar?
+
+1. Agendar Serviço
+2. Meus Agendamentos
+3. Ver Serviços e Preços
+4. Tirar Dúvidas (Falar com Atendente)
+
+_Responda com o número da opção._`;
+        await sendText(remoteJid, welcomeMsg);
+        session.state = 'MENU_SELECTION';
+        
+        // Notification: Cliente entrou em contato
+        eventEmitter.emit(NOTIFICATION_EVENT, `Cliente ${contactName} entrou em contato.`);
+        return;
     }
 
-    const sendBotMessage = async (text) => {
-        await sendMessageWTyping(senderJid, text);
-    };
-    
-    // Logic to enable human support
-    const triggerHumanSupport = async () => {
-        session.state = 'HUMAN_SUPPORT';
-        aistudio.chatbot_sessions[senderJid] = session;
-        saveDb();
-        
-        // Notify owner via "SMS" (Message to self) and Frontend Notification
-        const notificationText = `Cliente ${clientNumber} quer tirar duvida`; // SMS text format
-        const frontendNotification = `Cliente ${senderName} quer tirar duvida`; // Frontend notification format
-        
-        if (sock && sock.user) {
-            const ownerJid = jidNormalizedUser(sock.user.id);
-            await sock.sendMessage(ownerJid, { text: notificationText });
-        }
-        
-        notifyFrontend(frontendNotification);
-        
-        await sendBotMessage("Certo! Encaminhei sua solicitação para nosso atendimento. Em breve um atendente irá falar com você por aqui.");
-    };
-
-    const resetSession = () => {
-        delete aistudio.chatbot_sessions[senderJid];
-    };
-    
-    // Sends the complete, updated data to the frontend for robust sync
-    const notifyFrontendOfDbChange = () => {
-        waEvents.emit('event', { 
-            type: 'db_change', 
-            data: { 
-                clients: aistudio.clients, 
-                appointments: aistudio.appointments 
-            } 
-        });
-    }
-
-    const showSummaryAndConfirm = async () => {
-        const { serviceId, carId, date, time, protections } = session;
-        const service = serviceId === 'on-site' ? { name: 'A ser escolhido no local' } : aistudio.services.find(s => s.id === serviceId);
-        const client = aistudio.clients.find(c => c.id === session.clientId);
-        const car = client.cars.find(c => c.id === carId);
-
-        let summary = "Ótimo! Por favor, confirme os detalhes do seu agendamento:\n\n";
-        if (service) summary += `*Serviço:* ${service.name}\n`;
-        if (car) summary += `*Veículo:* ${car.model} (${car.plate})\n`;
-        if (date && time) {
-             const confirmationDate = new Date(`${date}T${time}`);
-             const formattedDate = confirmationDate.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
-             summary += `*Data e Hora:* ${formattedDate} às ${time}h\n`;
-        }
-        if (protections) summary += `*Proteções informadas:* ${protections}\n`;
-
-        summary += "\nEstá tudo correto? Responda *Confirmar* ou *Alterar*.";
-        await sendBotMessage(summary);
-        session.state = 'AWAITING_FINAL_CONFIRMATION';
-    };
-
-    const handlePlanCheck = async () => {
-        const client = aistudio.clients.find(c => c.id === session.clientId);
-        if (client.monthlyPlanId) {
-            // Client has a plan
-            const plan = aistudio.monthlyPlans.find(p => p.id === client.monthlyPlanId);
-            const today = getBrazilDate();
-            const currentCycleStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-            
-            // Get usage
-            let usage = aistudio.clientPlanUsages.find(u => u.clientId === client.id && u.cycleStartDate === currentCycleStart);
-            
-            if (plan) {
-                let statusMsg = `Você é assinante do plano *${plan.name}*.\n`;
-                const details = plan.includedServices.map(item => {
-                    const serviceName = aistudio.services.find(s => s.id === item.serviceId)?.name || 'Serviço';
-                    const used = usage && usage.usedServices[item.serviceId] ? usage.usedServices[item.serviceId] : 0;
-                    const remaining = Math.max(0, item.quantity - used);
-                    return `- ${serviceName}: ${remaining} restantes de ${item.quantity}`;
-                }).join('\n');
-                statusMsg += details;
-                await sendBotMessage(statusMsg);
+    // 2. MENU SELECTION
+    if (session.state === 'MENU_SELECTION') {
+        if (text.includes('1')) {
+            await sendText(remoteJid, "Ótimo! Para começarmos o agendamento, por favor, digite seu *Nome Completo* (apenas letras).");
+            session.state = 'COLLECTING_NAME';
+        } else if (text.includes('2')) {
+            // Simple lookup by phone number logic
+            const client = db.clients.find(c => c.whatsapp.replace(/\D/g, '') === remoteJid.replace(/\D/g, ''));
+            if (client) {
+                const apps = db.appointments.filter(a => a.clientId === client.id && a.status === 'Agendado');
+                if (apps.length > 0) {
+                    const appList = apps.map(a => `${a.date.split('-').reverse().join('/')} às ${a.time}`).join('\n');
+                    await sendText(remoteJid, `Seus agendamentos futuros:\n${appList}`);
+                } else {
+                    await sendText(remoteJid, "Você não tem agendamentos futuros.");
+                }
+            } else {
+                await sendText(remoteJid, "Não encontrei cadastro com este número.");
             }
+            session.state = 'START';
+        } else if (text.includes('3')) {
+            if (db.services.length === 0) {
+                await sendText(remoteJid, "No momento não temos serviços cadastrados no sistema.");
+            } else {
+                const serviceList = db.services.map(s => `*${s.name}* - R$ ${s.price.toFixed(2)} (${s.duration} min)`).join('\n');
+                await sendText(remoteJid, `Nossos Serviços:\n\n${serviceList}\n\nSe desejar agendar, digite 'Voltar' e escolha a opção 1.`);
+                
+                // Send Catalogs if available
+                if (db.catalogFiles.length > 0) {
+                    await sendText(remoteJid, "Estou enviando nosso catálogo em PDF/Imagem...");
+                    // Logic to send files would go here
+                }
+            }
+            session.state = 'START'; // Reset to start or let them navigate back
+        } else if (text.includes('4') || text.toLowerCase().includes('duvida')) {
+            await sendText(remoteJid, "Entendido. Estou transferindo seu atendimento para um humano. Aguarde um momento que o dono irá responder nesta mesma conversa.");
+            session.state = 'HUMAN_SUPPORT';
             
-            // Skip plan pitch, go to service selection
-            await sendBotMessage("Deseja ver a lista completa de serviços ou prefere escolher o serviço no local?");
-            session.state = 'CHOOSE_SERVICE_OPTION';
+            // Notification: Cliente quer tirar dúvida
+            const notifMsg = `Cliente ${contactName} quer tirar dúvida.`;
+            eventEmitter.emit(NOTIFICATION_EVENT, notifMsg);
+            
+            // *** SELF-NOTIFICATION (WhatsApp) ***
+            try {
+                // Get the bot's own JID (the connected number)
+                const botId = jidNormalizedUser(sock.user.id);
+                // Send message to self
+                await sock.sendMessage(botId, { text: `🔔 *ALERTA DO SISTEMA*\n\nO cliente *${contactName}* (${remoteJid.split('@')[0]}) solicitou atendimento humano para tirar dúvidas.\n\nAcesse a aba 'WhatsApp' > 'Suporte Humano' no painel para responder.` });
+            } catch (err) {
+                console.error("Failed to send self-notification", err);
+            }
 
         } else {
-            // Client does NOT have a plan
-            await sendBotMessage("Verifiquei que você ainda não possui um plano mensal conosco. Gostaria de *conhecer* nossos planos e economizar, ou prefere *prosseguir* com o agendamento avulso?");
-            session.state = 'AWAITING_PLAN_INTEREST_RESPONSE';
+            await sendText(remoteJid, "Opção inválida. Digite 1, 2, 3 ou 4.");
         }
-    };
-
-    switch (session.state) {
-        case 'GREETING':
-            await sendBotMessage(`Olá! Sou o assistente virtual da CAR CLASS. Como posso te ajudar hoje?\n\n1. Já sou cliente\n2. Novo Cadastro\n3. Tirar Dúvidas`);
-            session.state = 'AWAITING_MENU_RESPONSE';
-            break;
-
-        case 'AWAITING_MENU_RESPONSE':
-            if (normalizedMessage.includes('3') || normalizedMessage.includes('duvida')) {
-                await triggerHumanSupport();
-                return; // Stop processing
-            } else if (normalizedMessage.includes('1') || normalizedMessage.includes('ja sou') || normalizedMessage.includes('cliente')) {
-                await sendBotMessage("Que bom te ver de volta! Por favor, digite seu CPF para localizarmos seu cadastro. (Pode ser com pontos e traço)");
-                session.state = 'VALIDATING_CPF';
-                session.cpfRetryCount = 0;
-            } else if (normalizedMessage.includes('2') || normalizedMessage.includes('novo') || normalizedMessage.includes('cadastro')) {
-                await sendBotMessage("Seja bem-vindo(a)! Vamos realizar seu cadastro. Por favor, digite seu nome completo.");
-                session.state = 'AWAITING_NEW_CLIENT_NAME';
-            } else {
-                await sendBotMessage("Desculpe, não entendi. Por favor, digite o número da opção desejada:\n1. Já sou cliente\n2. Novo Cadastro\n3. Tirar Dúvidas");
-            }
-            break;
-
-        case 'VALIDATING_CPF':
-            const foundClient = findClientByCpf(message);
-            if (foundClient) {
-                session.clientId = foundClient.id;
-                await sendBotMessage(`Cadastro encontrado em nome de *${foundClient.name}*!`);
-                const upcomingAppointment = getClientUpcomingAppointment(foundClient.id);
-                if (upcomingAppointment) {
-                    session.existingAppointmentId = upcomingAppointment.id;
-                    const appointmentDate = new Date(upcomingAppointment.date + 'T' + upcomingAppointment.time).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-                    await sendBotMessage(`Verifiquei aqui e você já tem um agendamento para ${appointmentDate}. Você deseja *alterar*, *cancelar* este agendamento ou *prosseguir* com um novo?`);
-                    session.state = 'AWAITING_EXISTING_APPOINTMENT_ACTION';
-                } else {
-                    // Check for plans before going to service selection
-                    await handlePlanCheck();
-                }
-            } else {
-                session.cpfRetryCount++;
-                if (session.cpfRetryCount < 2) {
-                    await sendBotMessage("CPF não encontrado. Por favor, tente digitar novamente.");
-                } else {
-                    await sendBotMessage("Ainda não localizei seu CPF. Vamos fazer um novo cadastro para você. Qual o seu nome completo?");
-                    session.state = 'AWAITING_NEW_CLIENT_NAME';
-                }
-            }
-            break;
-
-        case 'AWAITING_EXISTING_APPOINTMENT_ACTION':
-             if (normalizedMessage.includes('cancelar')) {
-                const appointmentId = session.existingAppointmentId;
-                aistudio.appointments = aistudio.appointments.filter(a => a.id !== appointmentId);
-                await sendBotMessage("Seu agendamento foi cancelado com sucesso. O horário agora está disponível novamente. Se precisar de algo mais, é só chamar!");
-                notifyFrontend(`Cliente ${senderName} cancelou agendamento`);
-                notifyFrontendOfDbChange();
-                resetSession();
-            } else if (normalizedMessage.includes('alterar')) {
-                const appointment = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
-                session.serviceId = appointment.serviceIds[0]; 
-                session.isReschedule = true;
-                await sendBotMessage("Ok, vamos alterar. " + getAvailableSlots());
-                session.state = 'AWAITING_DATETIME_FOR_CHANGE';
-            } else if (normalizedMessage.includes('prosseguir')) {
-                 // Check for plans before going to service selection
-                 await handlePlanCheck();
-            } else {
-                await sendBotMessage("Por favor, responda com *alterar*, *cancelar* ou *prosseguir*.");
-            }
-            break;
-
-        case 'AWAITING_NEW_CLIENT_NAME':
-            session.newClientName = message;
-            await sendBotMessage("Obrigado. Agora, por favor, digite seu CPF.");
-            session.state = 'AWAITING_NEW_CLIENT_CPF';
-            break;
-
-        case 'AWAITING_NEW_CLIENT_CPF':
-            const existingClient = findClientByCpf(message);
-            if (existingClient) {
-                await sendBotMessage("Este CPF já está cadastrado em nome de *" + existingClient.name + "*. Vamos prosseguir com este cadastro.");
-                session.clientId = existingClient.id;
-            } else {
-                const newClient = { id: `c${Date.now()}`, name: session.newClientName, cpf: message, whatsapp: clientNumber, cars: [] };
-                aistudio.clients.push(newClient);
-                session.clientId = newClient.id;
-                await sendBotMessage("Cadastro concluído com sucesso!");
-                notifyFrontendOfDbChange();
-            }
-            // Check plans for new or existing client
-            await handlePlanCheck();
-            break;
-
-        case 'AWAITING_PLAN_INTEREST_RESPONSE':
-            if (normalizedMessage.includes('conhecer') || normalizedMessage.includes('sim')) {
-                const plans = aistudio.monthlyPlans;
-                if (plans.length > 0) {
-                    let plansMsg = "Estes são os nossos planos mensais:\n\n";
-                    plans.forEach((p, idx) => {
-                        plansMsg += `*${idx + 1}. ${p.name}* - R$ ${p.price.toFixed(2)}\n`;
-                    });
-                    plansMsg += "\nDigite o número do plano que deseja aderir, ou digite *prosseguir* para continuar sem plano.";
-                    await sendBotMessage(plansMsg);
-                    session.state = 'AWAITING_PLAN_SELECTION';
-                } else {
-                    await sendBotMessage("No momento não temos planos cadastrados. Vamos prosseguir com o agendamento avulso.");
-                    await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
-                    session.state = 'CHOOSE_SERVICE_OPTION';
-                }
-            } else {
-                await sendBotMessage("Sem problemas! Vamos prosseguir com o agendamento avulso.");
-                await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
-                session.state = 'CHOOSE_SERVICE_OPTION';
-            }
-            break;
-
-        case 'AWAITING_PLAN_SELECTION':
-            if (normalizedMessage.includes('prosseguir')) {
-                await sendBotMessage("Deseja ver a lista de serviços ou prefere escolher o serviço no local?");
-                session.state = 'CHOOSE_SERVICE_OPTION';
-            } else {
-                const choice = parseInt(message, 10) - 1;
-                if (aistudio.monthlyPlans[choice]) {
-                    const selectedPlan = aistudio.monthlyPlans[choice];
-                    const clientIndex = aistudio.clients.findIndex(c => c.id === session.clientId);
-                    if (clientIndex !== -1) {
-                        aistudio.clients[clientIndex].monthlyPlanId = selectedPlan.id;
-                        notifyFrontendOfDbChange();
-                        await sendBotMessage(`Parabéns! O plano *${selectedPlan.name}* foi vinculado ao seu cadastro.`);
-                        await sendBotMessage("Agora, deseja ver a lista de serviços ou prefere escolher o serviço no local?");
-                        session.state = 'CHOOSE_SERVICE_OPTION';
-                    } else {
-                        await sendBotMessage("Houve um erro ao vincular o plano. Vamos prosseguir com o agendamento.");
-                        session.state = 'CHOOSE_SERVICE_OPTION';
-                    }
-                } else {
-                    await sendBotMessage("Opção inválida. Digite o número do plano ou *prosseguir*.");
-                }
-            }
-            break;
-
-        case 'CHOOSE_SERVICE_OPTION':
-            if (normalizedMessage.includes('lista') || normalizedMessage.includes('ver')) {
-                if (aistudio.catalogFiles && aistudio.catalogFiles.length > 0) {
-                    await sendBotMessage("Certo! Enviando nosso catálogo de serviços para você:");
-                     for (const file of aistudio.catalogFiles) {
-                         await sock.sendMessage(senderJid, {
-                             document: { url: file.path },
-                             mimetype: file.file.type,
-                             fileName: file.file.name
-                         });
-                     }
-                    await sendBotMessage("Qual dos serviços acima você deseja agendar?");
-                } else {
-                    const serviceList = aistudio.services.map(s => `*- ${s.name}*`).join('\n');
-                    await sendBotMessage(`Claro! Aqui estão nossos serviços:\n\n${serviceList}\n\nQual deles você deseja?`);
-                }
-                session.state = 'AWAITING_SERVICE_CHOICE';
-            } else if (normalizedMessage.includes('local') || normalizedMessage.includes('escolher')) {
-                session.serviceId = 'on-site';
-                await sendBotMessage("Entendido. " + getAvailableSlots());
-                session.state = 'AWAITING_DATETIME_CHOICE';
-            } else {
-                await sendBotMessage("Por favor, me diga se quer ver a *lista de serviços* ou *escolher no local*.");
-            }
-            break;
-
-        case 'AWAITING_SERVICE_CHOICE':
-            const chosenService = aistudio.services.find(s => normalizeText(s.name).includes(normalizedMessage));
-            if (chosenService) {
-                session.serviceId = chosenService.id;
-                await sendBotMessage(`Ótimo, serviço *${chosenService.name}* selecionado. ` + getAvailableSlots());
-                session.state = 'AWAITING_DATETIME_CHOICE';
-            } else {
-                await sendBotMessage("Não encontrei este serviço. Por favor, digite o nome de um dos serviços da nossa lista.");
-            }
-            break;
-            
-        case 'AWAITING_DATETIME_CHOICE':
-        case 'AWAITING_DATETIME_FOR_CHANGE':
-            const parsedDateTime = parseDateTime(message);
-            if (parsedDateTime && isSlotAvailable(parsedDateTime.date, parsedDateTime.time)) {
-                session.date = parsedDateTime.date;
-                session.time = parsedDateTime.time;
-                const confirmationDate = new Date(`${parsedDateTime.date}T${parsedDateTime.time}`);
-                const formattedDate = confirmationDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
-                await sendBotMessage(`Ok! Horário pré-agendado para ${formattedDate} às ${parsedDateTime.time}h.`);
-                
-                const clientForVehicleCheck = aistudio.clients.find(c => c.id === session.clientId);
-
-                if (session.state === 'AWAITING_DATETIME_FOR_CHANGE') {
-                     if (clientForVehicleCheck.cars && clientForVehicleCheck.cars.length > 0) {
-                         const carToConfirm = clientForVehicleCheck.cars.find(c => c.id === aistudio.appointments.find(a => a.id === session.existingAppointmentId).carId);
-                         await sendBotMessage(`O serviço será no seu *${carToConfirm.model} (${carToConfirm.plate})*? (*Sim* ou *Não*)`);
-                         session.state = 'CONFIRM_EXISTING_VEHICLE_FOR_CHANGE';
-                     } else { // Should not happen if appointment existed, but as a fallback
-                          await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
-                          session.state = 'AWAITING_PROTECTION_RESPONSE';
-                     }
-                } else {
-                     await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
-                     session.state = 'AWAITING_PROTECTION_RESPONSE';
-                }
-            } else {
-                await sendBotMessage("Desculpe, não entendi a data e hora ou este horário não está disponível. Por favor, escolha um dos horários da lista ou digite, por exemplo: 'terça as 10h' ou 'dia 22 as 15h'.");
-            }
-            break;
-            
-        case 'AWAITING_PROTECTION_RESPONSE':
-            if (normalizedMessage.includes('sim')) {
-                await sendBotMessage("Por favor, me diga qual ou quais proteções ele possui.");
-                session.state = 'AWAITING_PROTECTION_DETAILS';
-            } else if (normalizedMessage.includes('nao')) {
-                session.protections = 'Nenhuma';
-                const clientForProtectionCheck = aistudio.clients.find(c => c.id === session.clientId);
-                if (clientForProtectionCheck.cars && clientForProtectionCheck.cars.length > 0) {
-                    if (clientForProtectionCheck.cars.length === 1) {
-                        const car = clientForProtectionCheck.cars[0];
-                        await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`);
-                        session.state = 'CONFIRM_EXISTING_VEHICLE';
-                    } else {
-                        let carList = "O serviço será em qual dos seus veículos?\n";
-                        clientForProtectionCheck.cars.forEach((car, index) => {
-                            carList += `${index + 1}. ${car.model} (${car.plate})\n`;
-                        });
-                        carList += "\nDigite o número correspondente.";
-                        await sendBotMessage(carList);
-                        session.state = 'CHOOSE_AMONG_VEHICLES';
-                    }
-                } else {
-                    await sendBotMessage("Para finalizar, qual o modelo e a placa do veículo? (Ex: Honda Civic ABC1D23)");
-                    session.state = 'AWAITING_NEW_VEHICLE';
-                }
-            } else {
-                await sendBotMessage("Por favor, responda com *Sim* ou *Não*.");
-            }
-            break;
-
-        case 'AWAITING_PROTECTION_DETAILS':
-            session.protections = message;
-            const clientForDetailsCheck = aistudio.clients.find(c => c.id === session.clientId);
-            if (clientForDetailsCheck.cars && clientForDetailsCheck.cars.length > 0) {
-                 if (clientForDetailsCheck.cars.length === 1) {
-                    const car = clientForDetailsCheck.cars[0];
-                    await sendBotMessage(`O serviço será no seu *${car.model} (${car.plate})*? (*Sim* ou *Não*)`);
-                    session.state = 'CONFIRM_EXISTING_VEHICLE';
-                } else {
-                    let carList = "Entendido. E o serviço será em qual dos seus veículos?\n";
-                    clientForDetailsCheck.cars.forEach((car, index) => { carList += `${index + 1}. ${car.model} (${car.plate})\n`; });
-                    carList += "\nDigite o número correspondente.";
-                    await sendBotMessage(carList);
-                    session.state = 'CHOOSE_AMONG_VEHICLES';
-                }
-            } else {
-                 await sendBotMessage("Entendido. Para finalizar, qual o modelo e a placa do veículo? (Ex: Honda Civic ABC1D23)");
-                 session.state = 'AWAITING_NEW_VEHICLE';
-            }
-            break;
-
-        case 'CONFIRM_EXISTING_VEHICLE':
-             const clientToConfirm = aistudio.clients.find(c => c.id === session.clientId);
-             if (normalizedMessage.includes('sim')) {
-                 session.carId = clientToConfirm.cars[0].id;
-                 await showSummaryAndConfirm();
-             } else {
-                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.");
-                 session.state = 'AWAITING_NEW_VEHICLE';
-             }
-             break;
-        
-        case 'CONFIRM_EXISTING_VEHICLE_FOR_CHANGE':
-             const clientToConfirmChange = aistudio.clients.find(c => c.id === session.clientId);
-             const appointmentToChange = aistudio.appointments.find(a => a.id === session.existingAppointmentId);
-             if (normalizedMessage.includes('sim')) {
-                 session.carId = appointmentToChange.carId;
-                 await showSummaryAndConfirm();
-             } else {
-                 await sendBotMessage("Ok. Por favor, informe o modelo e a placa do novo veículo.");
-                 session.state = 'AWAITING_NEW_VEHICLE';
-             }
-             break;
-
-        case 'CHOOSE_AMONG_VEHICLES':
-            const clientToChoose = aistudio.clients.find(c => c.id === session.clientId);
-            const choice = parseInt(message, 10) - 1;
-            if (clientToChoose.cars[choice]) {
-                session.carId = clientToChoose.cars[choice].id;
-                await showSummaryAndConfirm();
-            } else {
-                await sendBotMessage("Opção inválida. Por favor, digite o número de um dos veículos da lista.");
-            }
-            break;
-
-        case 'AWAITING_NEW_VEHICLE':
-            const parts = message.trim().split(' ');
-            if (parts.length < 2) {
-                 await sendBotMessage("Formato inválido. Por favor, envie o modelo e a placa. (Ex: Honda Civic ABC1D23)");
-                 return;
-            }
-            const plate = parts.pop();
-            const model = parts.join(' ');
-            const newCar = { id: `car${Date.now()}`, model, plate, protections: session.protections ? [session.protections] : [] };
-            
-            const clientIndexNewCar = aistudio.clients.findIndex(c => c.id === session.clientId);
-            if (clientIndexNewCar !== -1) {
-                aistudio.clients[clientIndexNewCar].cars.push(newCar);
-                session.carId = newCar.id;
-                notifyFrontendOfDbChange();
-                await sendBotMessage(`Veículo *${model} (${plate})* cadastrado!`);
-                await showSummaryAndConfirm();
-            }
-            break;
-            
-        case 'AWAITING_FINAL_CONFIRMATION':
-            if (normalizedMessage.includes('confirmar')) {
-                if (!isSlotAvailable(session.date, session.time)) {
-                    await sendBotMessage("Oh, que pena! Parece que alguém acabou de agendar neste mesmo horário enquanto você confirmava. Vamos tentar outro?");
-                    await sendBotMessage(getAvailableSlots());
-                    session.state = 'AWAITING_DATETIME_CHOICE';
-                    break;
-                }
-
-                let appointmentData = {
-                    clientId: session.clientId,
-                    carId: session.carId,
-                    serviceIds: session.serviceId === 'on-site' ? [] : [session.serviceId],
-                    date: session.date,
-                    time: session.time,
-                    status: 'Agendado'
-                };
-                
-                if (session.existingAppointmentId) {
-                    aistudio.appointments = aistudio.appointments.map(a => a.id === session.existingAppointmentId ? { ...a, ...appointmentData } : a);
-                } else {
-                    aistudio.appointments.push({ ...appointmentData, id: `a${Date.now()}`});
-                }
-                notifyFrontendOfDbChange();
-                
-                const confirmationDate = new Date(`${session.date}T${session.time}`);
-                const formattedDate = confirmationDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
-                
-                if (session.isReschedule) {
-                     notifyFrontend(`Cliente ${senderName} alterou horário`);
-                } else {
-                     notifyFrontend(`Cliente ${senderName} agendou ${formattedDate} e ${session.time}`);
-                }
-                
-                // End flow option - Ask for doubts
-                await sendBotMessage("Agendamento confirmado com sucesso! Muito obrigado por escolher a CAR CLASS.\n\nDeseja encerrar o atendimento ou tem mais alguma dúvida?\n\n1. Encerrar\n2. Tirar Dúvidas");
-                session.state = 'AWAITING_POST_CONFIRMATION_ACTION';
-
-            } else if (normalizedMessage.includes('alterar')) {
-                await sendBotMessage("O que você deseja alterar? (*Serviço*, *Veículo*, *Data/Hora* ou *Proteção*)");
-                session.state = 'AWAITING_ALTERATION_CHOICE';
-            } else {
-                await sendBotMessage("Por favor, responda com *Confirmar* ou *Alterar*.");
-            }
-            break;
-            
-        case 'AWAITING_POST_CONFIRMATION_ACTION':
-            if (normalizedMessage.includes('2') || normalizedMessage.includes('duvida')) {
-                await triggerHumanSupport();
-            } else {
-                await sendBotMessage("Combinado! Até breve!");
-                session.state = 'CONVERSATION_ENDED';
-            }
-            break;
-            
-        case 'AWAITING_ALTERATION_CHOICE':
-             if (normalizedMessage.includes('servico')) {
-                session.state = 'CHOOSE_SERVICE_OPTION';
-                await sendBotMessage("Ok, vamos alterar o serviço. Deseja ver a lista ou escolher no local?");
-             } else if (normalizedMessage.includes('veiculo') || normalizedMessage.includes('protecao')) {
-                 session.state = 'AWAITING_PROTECTION_RESPONSE'; // Restart from vehicle/protection step
-                 await sendBotMessage("Vamos alterar o veículo. Ele possui alguma proteção? (*Sim* ou *Não*)");
-             } else if (normalizedMessage.includes('data') || normalizedMessage.includes('hora')) {
-                 await sendBotMessage("Ok, vamos alterar a data/hora. " + getAvailableSlots());
-                 session.state = 'AWAITING_DATETIME_CHOICE';
-             } else {
-                 await sendBotMessage("Não entendi. Por favor, escolha entre *Serviço*, *Veículo*, *Data/Hora* ou *Proteção*.");
-             }
-             break;
+        return;
     }
 
-    aistudio.chatbot_sessions[senderJid] = session;
-    saveDb();
+    // 3. COLLECTING NAME (Strict Validation, Allows accents and unaccented)
+    if (session.state === 'COLLECTING_NAME') {
+        const nameRegex = /^[A-Za-zÀ-ÖØ-öø-ÿ\s]+$/;
+        if (!nameRegex.test(text.trim())) {
+            await sendText(remoteJid, "Por favor, digite um nome válido contendo *apenas letras* (pode ser com ou sem acento).");
+            return;
+        }
+        session.tempData.name = text.trim();
+        await sendText(remoteJid, "Obrigado. Agora, digite seu *CPF* (apenas os 11 números, ex: 12345678901):");
+        session.state = 'COLLECTING_CPF';
+        return;
+    }
+
+    // 4. COLLECTING CPF (Strict Validation)
+    if (session.state === 'COLLECTING_CPF') {
+        const cleanCpf = text.replace(/\D/g, '');
+        if (cleanCpf.length !== 11) {
+            await sendText(remoteJid, "CPF inválido. Por favor, digite exatamente *11 números*.");
+            return;
+        }
+        session.tempData.cpf = cleanCpf;
+        
+        // List Services
+        let msg = "Escolha o serviço (digite o número):\n";
+        db.services.forEach((s, i) => msg += `${i + 1}. ${s.name} (R$ ${s.price})\n`);
+        await sendText(remoteJid, msg);
+        session.state = 'SELECTING_SERVICE';
+        return;
+    }
+
+    // 5. SELECTING SERVICE
+    if (session.state === 'SELECTING_SERVICE') {
+        const choice = parseInt(text) - 1;
+        if (isNaN(choice) || choice < 0 || choice >= db.services.length) {
+            await sendText(remoteJid, "Opção inválida. Tente novamente.");
+            return;
+        }
+        session.tempData.serviceId = db.services[choice].id;
+        session.tempData.serviceName = db.services[choice].name;
+        
+        await sendText(remoteJid, "Para quando você gostaria de agendar? \n(Ex: 'Terca as 9', 'Amanhã as 14h', '15/10 as 10:00')");
+        session.state = 'SELECTING_TIME';
+        return;
+    }
+
+    // 6. SELECTING TIME (NLP)
+    if (session.state === 'SELECTING_TIME') {
+        // Use the NLP helper
+        const parsedData = parseNaturalLanguageDate(text);
+        
+        if (!parsedData) {
+            await sendText(remoteJid, "Não consegui entender o horário. Tente algo como 'Terça as 9 da manhã' ou 'Amanhã as 15h'.");
+            return;
+        }
+
+        session.tempData.date = parsedData.date;
+        session.tempData.time = parsedData.time;
+        
+        // Check availability (Mock logic: just check if slot matches existing appointment)
+        const isTaken = db.appointments.some(a => a.date === parsedData.date && a.time === parsedData.time && a.status !== 'Finalizado');
+        
+        if (isTaken) {
+             await sendText(remoteJid, `O horário ${parsedData.formatted} já está ocupado. Por favor, escolha outro.`);
+             return;
+        }
+
+        // Summary
+        // Show the name they typed in the confirmation message
+        const summary = `Confirma o agendamento?\n\n` +
+                        `Cliente: ${session.tempData.name}\n` +
+                        `Serviço: ${session.tempData.serviceName}\n` +
+                        `Data/Hora: ${parsedData.formatted}\n\n` +
+                        `Digite *Sim* para confirmar ou *Cancelar* para desistir.`;
+        await sendText(remoteJid, summary);
+        session.state = 'CONFIRMING_APPOINTMENT';
+        return;
+    }
+
+    // 7. CONFIRMING
+    if (session.state === 'CONFIRMING_APPOINTMENT') {
+        if (text.toLowerCase() === 'sim') {
+            // USER REQUEST: Use the name the CLIENT typed (session.tempData.name) for Registration/DB.
+            // Do NOT overwrite it with the WhatsApp Agenda name.
+            const nameToRegister = session.tempData.name;
+
+            // Create Client if not exists
+            let client = db.clients.find(c => c.cpf === session.tempData.cpf);
+            if (!client) {
+                client = {
+                    id: `c-${Date.now()}`,
+                    name: nameToRegister, // Strict use of typed name
+                    cpf: session.tempData.cpf,
+                    whatsapp: remoteJid.replace('@s.whatsapp.net', ''),
+                    cars: [],
+                };
+                db.clients.push(client);
+            } else {
+                // Update the name to what they typed this time
+                client.name = nameToRegister;
+            }
+
+            // Create Appointment
+            const appointment = {
+                id: `appt-${Date.now()}`,
+                clientId: client.id,
+                carId: client.cars.length > 0 ? client.cars[0].id : 'temp-car', // Simplification
+                serviceIds: [session.tempData.serviceId],
+                date: session.tempData.date,
+                time: session.tempData.time,
+                status: 'Agendado'
+            };
+            db.appointments.push(appointment);
+            saveDb(); // Triggers instant update on frontend via SSE
+
+            // Notification: Cliente agendou (using registered name)
+            const formattedDate = appointment.date.split('-').reverse().join('/');
+            eventEmitter.emit(NOTIFICATION_EVENT, `Cliente ${client.name} agendou para ${formattedDate} às ${appointment.time}.`);
+
+            await sendText(remoteJid, "Agendamento confirmado com sucesso! Obrigado pela preferência.");
+            
+            // Ask final question (Loop back to start or human support?)
+            await sendText(remoteJid, "Deseja algo mais?\n1. Voltar ao Menu\n2. Tirar Dúvidas (Falar com Humano)");
+            session.state = 'FINAL_DECISION';
+
+        } else {
+            await sendText(remoteJid, "Agendamento cancelado. Digite 'Oi' para recomeçar.");
+            session.state = 'START';
+        }
+        return;
+    }
+    
+    // 8. FINAL DECISION
+    if (session.state === 'FINAL_DECISION') {
+        const currentName = contactStore.get(remoteJid) || session.tempData.name;
+
+        if (text.includes('2') || text.toLowerCase().includes('duvida')) {
+             await sendText(remoteJid, "OK. Um atendente humano irá assumir esta conversa em breve.");
+             session.state = 'HUMAN_SUPPORT';
+             
+             // Notification & Self-message
+             const notifMsg = `Cliente ${currentName} quer tirar dúvida (após agendamento).`;
+             eventEmitter.emit(NOTIFICATION_EVENT, notifMsg);
+             
+             try {
+                const botId = jidNormalizedUser(sock.user.id);
+                await sock.sendMessage(botId, { text: `🔔 *ALERTA DO SISTEMA*\n\nO cliente *${currentName}* solicitou suporte humano após finalizar um fluxo.` });
+            } catch (err) {}
+
+        } else {
+            // Reset to start
+            session.state = 'START';
+            await sendText(remoteJid, "Certo. Digite 'Oi' quando precisar.");
+        }
+    }
 };
 
+const connectToWhatsApp = async () => {
+    const { state, saveCreds } = await useMultiFileAuthState(path.join(DATA_DIR, 'auth_info_baileys'));
+    const { version } = await fetchLatestBaileysVersion();
 
-// --- STARTUP LOGIC ---
-// Differentiate between development (Vite middleware) and production (standalone server)
-const isViteDev = process.env.npm_lifecycle_script?.includes('vite');
+    sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: true,
+        logger: pino({ level: 'silent' }),
+        browser: ["CarClass Admin", "Chrome", "1.0.0"],
+    });
 
-if (isViteDev) {
-    // DEVELOPMENT: Running as Vite middleware.
-    console.log('[Vite Dev] Anexando servidor Express e iniciando WhatsApp...');
-    startWhatsApp().catch(err => console.error("[Vite Dev Startup] Erro fatal ao iniciar o WhatsApp:", err));
-} else {
-    // PRODUCTION: Running as a standalone Node.js server.
-    // Serve the built frontend files.
-    // @ts-ignore
-    app.use(express.static(DIST_DIR));
-    
-    // Explicitly handle 404s for common asset types to prevent index.html fallback errors (MIME type issues)
-    app.get('*', (req, res, next) => {
-        if (req.url.match(/\.(css|js|png|jpg|jpeg|gif|ico|json|map)$/)) {
-            return res.status(404).end();
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            qrcode.toDataURL(qr, (err, url) => {
+                qrCodeData = url;
+                connectionStatus = 'disconnected';
+                statusMessage = 'Aguardando leitura do QR Code';
+                // Emit status to frontend
+                eventEmitter.emit(WA_STATUS_CHANGE, { isConnected: false, message: statusMessage, qrCode: qrCodeData });
+            });
         }
-        res.sendFile(path.join(DIST_DIR, 'index.html'));
+
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Conexão fechada. Reconectando...', shouldReconnect);
+            connectionStatus = 'disconnected';
+            statusMessage = 'Desconectado. Tentando reconectar...';
+            eventEmitter.emit(WA_STATUS_CHANGE, { isConnected: false, message: statusMessage, qrCode: null });
+            if (shouldReconnect) {
+                connectToWhatsApp();
+            }
+        } else if (connection === 'open') {
+            console.log('WhatsApp conectado!');
+            connectionStatus = 'connected';
+            statusMessage = 'Conectado';
+            qrCodeData = null;
+            eventEmitter.emit(WA_STATUS_CHANGE, { isConnected: true, message: statusMessage, qrCode: null });
+        }
     });
 
-    // Start listening and then start WhatsApp.
-    app.listen(port, () => {
-        console.log(`[Server] Servidor HTTP rodando na porta ${port}`);
-        startWhatsApp().catch(err => console.error("[Production Startup] Erro fatal ao iniciar o WhatsApp:", err));
+    sock.ev.on('creds.update', saveCreds);
+
+    // Sync Contacts to get real names (Address Book)
+    sock.ev.on('contacts.upsert', (contacts) => {
+        for (const contact of contacts) {
+            if (contact.name) {
+                // This is the name saved in the address book (Agenda)
+                contactStore.set(contact.id, contact.name);
+            } else if (contact.notify && !contactStore.has(contact.id)) {
+                // Fallback to pushName only if we don't have a real name
+                contactStore.set(contact.id, contact.notify);
+            }
+        }
     });
-}
+
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (type === 'notify') {
+            for (const msg of messages) {
+                if (!msg.key.fromMe) {
+                    const remoteJid = getJid(msg);
+                    const pushName = msg.pushName;
+                    
+                    // If we have a pushname and not in store, store it as fallback
+                    if (pushName && !contactStore.has(remoteJid)) {
+                        contactStore.set(remoteJid, pushName);
+                    }
+
+                    // Strict priority: Address Book > Push Name > ID
+                    const senderName = contactStore.get(remoteJid) || pushName || remoteJid.split('@')[0];
+
+                    // Emit to Frontend Chat Interface
+                    const textBody = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
+                    const waMessage = {
+                        id: msg.key,
+                        body: textBody,
+                        timestamp: msg.messageTimestamp,
+                        isBot: false,
+                        senderName: senderName
+                    };
+                    eventEmitter.emit(WA_MESSAGE, waMessage, senderName);
+
+                    // Bot Logic
+                    await handleBotLogic(msg);
+                }
+            }
+        }
+    });
+};
+
+// Start WhatsApp
+connectToWhatsApp();
+
+
+// --- WA API ROUTES ---
+app.get('/api/whatsapp/status', (req, res) => {
+    res.json({ isConnected: connectionStatus === 'connected', message: statusMessage, qrCode: qrCodeData });
+});
+
+app.get('/api/whatsapp/chats', async (req, res) => {
+    const chatList = [];
+    for (const [jid, session] of sessions.entries()) {
+        const contactName = contactStore.get(jid) || jid.split('@')[0];
+        chatList.push({
+            id: jid,
+            name: contactName,
+            isHumanSupport: session.state === 'HUMAN_SUPPORT',
+            lastMessage: { body: 'Conversa ativa', timestamp: Date.now() / 1000 } 
+        });
+    }
+    res.json(chatList);
+});
+
+app.get('/api/whatsapp/messages/:chatId', (req, res) => {
+    res.json([]);
+});
+
+app.post('/api/whatsapp/send-message', async (req, res) => {
+    const { chatId, message } = req.body;
+    if (sock && connectionStatus === 'connected') {
+        await sock.sendMessage(chatId, { text: message });
+        res.json({ success: true });
+    } else {
+        res.status(500).json({ error: 'WhatsApp not connected' });
+    }
+});
+
+app.post('/api/whatsapp/resolve-support', async (req, res) => {
+    const { chatId } = req.body;
+    if (sessions.has(chatId)) {
+        const session = sessions.get(chatId);
+        session.state = 'START'; // Reset bot to start
+        await sendText(chatId, "O atendimento humano foi finalizado. O assistente virtual está de volta. Como posso ajudar?");
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ error: 'Session not found' });
+    }
+});
+
+// SSE for Real-time events
+app.get('/api/whatsapp/events', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const statusHandler = (data) => res.write(`data: ${JSON.stringify({ type: 'status_change', data })}\n\n`);
+    const messageHandler = (data, senderName) => res.write(`data: ${JSON.stringify({ type: 'message', data, senderName })}\n\n`);
+    const dbHandler = (data) => res.write(`data: ${JSON.stringify({ type: 'db_change', data })}\n\n`);
+    const notificationHandler = (message) => res.write(`data: ${JSON.stringify({ type: 'notification', message })}\n\n`);
+
+    // Listeners
+    eventEmitter.on(WA_STATUS_CHANGE, statusHandler);
+    eventEmitter.on(WA_MESSAGE, messageHandler);
+    eventEmitter.on(DB_CHANGE_EVENT, dbHandler);
+    eventEmitter.on(NOTIFICATION_EVENT, notificationHandler);
+
+    // Send current status immediately
+    res.write(`data: ${JSON.stringify({ type: 'status_change', data: { isConnected: connectionStatus === 'connected', message: statusMessage, qrCode: qrCodeData } })}\n\n`);
+
+    // Cleanup
+    req.on('close', () => {
+        eventEmitter.off(WA_STATUS_CHANGE, statusHandler);
+        eventEmitter.off(WA_MESSAGE, messageHandler);
+        eventEmitter.off(DB_CHANGE_EVENT, dbHandler);
+        eventEmitter.off(NOTIFICATION_EVENT, notificationHandler);
+    });
+});
+
+// Start Server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+
+export { app };
