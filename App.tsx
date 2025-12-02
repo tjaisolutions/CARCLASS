@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
@@ -625,7 +626,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                         } else if (event.type === 'message') {
                             const newMessage: WAMessage = event.data;
                             const chatId = newMessage.id.remote;
-                            addNotification(`Nova mensagem de ${event.senderName || chatId.split('@')[0]}.`);
+                            // Generic notification removed to prioritize specific business notifications
+                            // addNotification(`Nova mensagem de ${event.senderName || chatId.split('@')[0]}.`);
                             
                             if (chatId === activeChatId) {
                                 setMessages(prev => [...prev, newMessage]);
@@ -661,6 +663,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                         } else if (event.type === 'db_change') {
                             addNotification("Novos dados do chatbot foram sincronizados.");
                             onDataUpdate(event.data);
+                        } else if (event.type === 'notification') {
+                            addNotification(event.message);
                         }
                     } else {
                          await new Promise(resolve => setTimeout(resolve, 5000));
