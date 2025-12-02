@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { MOCK_CLIENTS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_PLANS, MOCK_CLIENT_PLAN_USAGE } from './constants';
 import { Client, Service, Appointment, AppointmentStatus, Car, NotificationItem, OperatingHours, AutomatedMessage, ChatMessageData, ConversationLog, MonthlyPlan, ClientPlanUsage, User, UserRole, ALL_TABS } from './types';
-import QRious from 'qrious';
 
 // --- SVG ICON COMPONENTS ---
 const CalendarDaysIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0h18M-4.5 12h22.5" /></svg>;
@@ -36,7 +35,7 @@ const DocumentTextIcon = ({ className }: { className?: string }) => <svg xmlns="
 const StarIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" /></svg>;
 const BanknotesIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>;
 const PhotoIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>;
-const LockClosedIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 0 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25 2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>;
+const LockClosedIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 0 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>;
 const ArrowRightOnRectangleIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>;
 const EyeIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>;
 const UserPlusIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" /></svg>;
@@ -546,11 +545,11 @@ const WhatsAppConnectionStatus = ({ status, message }: { status: 'connected' | '
 interface WAChat {
     id: string;
     name: string;
-    inQueue?: boolean;
     lastMessage: {
         body: string;
         timestamp: number;
     };
+    isHumanSupport: boolean;
 }
 // Interface for message objects
 interface WAMessage {
@@ -561,30 +560,16 @@ interface WAMessage {
 }
 
 
-const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string, type?: 'info' | 'success' | 'alert') => void; onDataUpdate: (data: any) => void; }) => {
+const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, setQrCode, setStatusMessage, addNotification, onDataUpdate }: { currentUser: User; status: 'connected' | 'disconnected' | 'loading'; qrCode: string | null; statusMessage: string; setStatus: (status: 'connected' | 'disconnected' | 'loading') => void; setQrCode: (qr: string | null) => void; setStatusMessage: (msg: string) => void; addNotification: (message: string) => void; onDataUpdate: (data: any) => void; }) => {
     const [chats, setChats] = useState<WAChat[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [messages, setMessages] = useState<WAMessage[]>([]);
     const [userInput, setUserInput] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const wasConnected = useRef(false);
+    const [activeTab, setActiveTab] = useState<'all' | 'support'>('all');
     
     const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
-
-    // Generate QR code image
-    const [qrCodeImg, setQrCodeImg] = useState<string | null>(null);
-    useEffect(() => {
-        if (qrCode) {
-            try {
-                const qr = new QRious({ value: qrCode, size: 250 });
-                setQrCodeImg(qr.toDataURL());
-            } catch(e) {
-                console.error("QR Generation error", e);
-            }
-        } else {
-            setQrCodeImg(null);
-        }
-    }, [qrCode]);
 
     useEffect(() => {
         const fetchInitialStatus = async () => {
@@ -640,7 +625,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                         } else if (event.type === 'message') {
                             const newMessage: WAMessage = event.data;
                             const chatId = newMessage.id.remote;
-                            // NOTE: Removed generic notification per user request
+                            addNotification(`Nova mensagem de ${event.senderName || chatId.split('@')[0]}.`);
                             
                             if (chatId === activeChatId) {
                                 setMessages(prev => [...prev, newMessage]);
@@ -648,15 +633,24 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
 
                             setChats(prevChats => {
                                 const existingChatIndex = prevChats.findIndex(c => c.id === chatId);
+                                let isHumanSupport = existingChatIndex > -1 ? prevChats[existingChatIndex].isHumanSupport : false;
+                                
+                                // Fetch fresh state for chat to check if human support status changed
+                                fetch('/api/whatsapp/chats').then(res => res.json()).then(data => {
+                                    const freshChat = data.find((c: any) => c.id === chatId);
+                                    if(freshChat) {
+                                        setChats(p => p.map(c => c.id === chatId ? {...c, isHumanSupport: freshChat.isHumanSupport} : c));
+                                    }
+                                });
+
                                 const updatedChat: WAChat = {
                                     id: chatId,
                                     name: event.senderName || chatId.split('@')[0],
-                                    // Preserve inQueue status unless updated by server sync
-                                    inQueue: prevChats[existingChatIndex]?.inQueue, 
                                     lastMessage: {
                                         body: newMessage.body,
                                         timestamp: newMessage.timestamp,
-                                    }
+                                    },
+                                    isHumanSupport: isHumanSupport
                                 };
                                 let newChats = [...prevChats];
                                 if (existingChatIndex > -1) {
@@ -665,17 +659,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                                 return [updatedChat, ...newChats];
                             });
                         } else if (event.type === 'db_change') {
-                            // NOTE: Removed generic notification per user request
+                            addNotification("Novos dados do chatbot foram sincronizados.");
                             onDataUpdate(event.data);
-                        } else if (event.type === 'system_notification') {
-                            // Only show specific notifications here
-                            const { message, type } = event.data;
-                            addNotification(message, type);
-                            // Refresh chat list if queue status changed
-                            if (message.includes('tirar duvida')) {
-                                // Trigger a refresh of chats to update queue status
-                                fetch('/api/whatsapp/chats').then(res => res.json()).then(setChats);
-                            }
                         }
                     } else {
                          await new Promise(resolve => setTimeout(resolve, 5000));
@@ -703,6 +688,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                      if (response.ok) {
                          const data = await response.json();
                          setChats(data);
+                         addNotification("Conversas do WhatsApp sincronizadas.");
                      }
                  } catch (error) {
                      console.error("Failed to fetch initial chats:", error);
@@ -710,7 +696,7 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             }
         };
         fetchInitialChats();
-    }, [status]);
+    }, [status, addNotification]);
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -750,25 +736,9 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             });
         } catch (error) {
             console.error("Error sending message:", error);
+            addNotification("Erro ao enviar mensagem.");
             // Revert optimistic update
             setMessages(prev => prev.filter(m => m !== optimisticMessage));
-        }
-    };
-    
-    const handleResolveHuman = async () => {
-        if (!activeChatId) return;
-        try {
-            const response = await fetch('/api/whatsapp/resolve-human', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chatId: activeChatId }),
-            });
-            if (response.ok) {
-                setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, inQueue: false } : c));
-                addNotification("Atendimento finalizado. Robô reativado para este cliente.", 'success');
-            }
-        } catch (error) {
-            console.error("Failed to resolve:", error);
         }
     };
     
@@ -792,13 +762,35 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
          fetchMessages();
      }, [activeChatId, status]);
 
+    const handleFinishSupport = async () => {
+        if (!activeChatId) return;
+        try {
+            const response = await fetch('/api/whatsapp/resolve-support', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chatId: activeChatId }),
+            });
+            if (response.ok) {
+                addNotification("Atendimento finalizado. O bot assumirá na próxima mensagem.");
+                // Update local state to remove from support list
+                setChats(prev => prev.map(c => c.id === activeChatId ? {...c, isHumanSupport: false} : c));
+                setActiveTab('all');
+            }
+        } catch (error) {
+            console.error("Failed to resolve support:", error);
+            addNotification("Erro ao finalizar atendimento.");
+        }
+    };
+
     const filteredChats = useMemo(() => {
-        return chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp)
-                    .filter(chat => normalizeText(chat.name).includes(normalizeText(searchTerm)));
-    }, [chats, searchTerm]);
-    
-    const humanQueueChats = filteredChats.filter(c => c.inQueue);
-    const normalChats = filteredChats.filter(c => !c.inQueue);
+        let filtered = chats.sort((a,b) => b.lastMessage.timestamp - a.lastMessage.timestamp);
+        
+        if (activeTab === 'support') {
+            filtered = filtered.filter(chat => chat.isHumanSupport);
+        }
+
+        return filtered.filter(chat => normalizeText(chat.name).includes(normalizeText(searchTerm)));
+    }, [chats, searchTerm, activeTab]);
 
     if (status === 'loading' || (status === 'disconnected' && !wasConnected.current)) {
          return (
@@ -808,8 +800,8 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
                     <h3 className="text-xl font-bold text-white mb-4">Conecte seu WhatsApp</h3>
                     <p className="text-gray-400 mt-2 max-w-md mb-6">Abra o WhatsApp no seu celular, vá para Aparelhos Conectados e escaneie o código abaixo.</p>
                     <div className="bg-white p-4 rounded-lg w-[282px] h-[282px] flex items-center justify-center">
-                        {qrCodeImg ? (
-                            <img src={qrCodeImg} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
+                        {qrCode ? (
+                            <img src={qrCode} alt="WhatsApp QR Code" className="w-[250px] h-[250px]" />
                         ) : (
                             <div className="w-12 h-12 border-4 border-dashed border-gray-400 rounded-full animate-spin"></div>
                         )}
@@ -839,70 +831,65 @@ const WhatsAppView = ({ currentUser, status, qrCode, statusMessage, setStatus, s
             <div className="flex-grow flex overflow-hidden p-4 pt-0">
                 {/* Sidebar com conversas */}
                 <div className="w-1/3 max-w-sm bg-brand-gray-medium rounded-l-lg border-r border-white/10 flex flex-col">
+                    <div className="flex border-b border-white/10">
+                        <button 
+                            onClick={() => setActiveTab('all')} 
+                            className={`flex-1 py-3 text-sm font-semibold text-center ${activeTab === 'all' ? 'text-brand-red border-b-2 border-brand-red' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            Todas
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('support')} 
+                            className={`flex-1 py-3 text-sm font-semibold text-center ${activeTab === 'support' ? 'text-brand-red border-b-2 border-brand-red' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            Suporte Humano
+                        </button>
+                    </div>
                     <div className="p-2 border-b border-white/10">
                         <FormInput label="" placeholder="Buscar conversa..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                     </div>
                     <div className="overflow-y-auto flex-grow">
-                        {/* HUMAN QUEUE SECTION */}
-                        {humanQueueChats.length > 0 && (
-                            <div className="bg-brand-red-dark/30 pb-2">
-                                <div className="px-3 py-2 text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-2">
-                                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                                    Aguardando Atendimento
+                        {filteredChats.length === 0 && (
+                            <div className="p-4 text-center text-gray-500 text-sm">Nenhuma conversa encontrada.</div>
+                        )}
+                        {filteredChats.map(chat => (
+                             <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
+                                <div className="relative">
+                                    <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
+                                    {chat.isHumanSupport && <div className="absolute -top-1 -right-1 bg-yellow-500 rounded-full p-0.5" title="Aguardando Suporte Humano"><ChatBubbleOvalLeftEllipsisIcon className="w-3 h-3 text-black"/></div>}
                                 </div>
-                                {humanQueueChats.map(chat => (
-                                    <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors border-red-500 ${activeChatId === chat.id ? 'bg-red-900/30' : 'hover:bg-red-900/10'}`}>
-                                        <UserCircleIcon className="w-10 h-10 text-red-400 flex-shrink-0" />
-                                        <div className="flex-grow overflow-hidden">
-                                            <div className="flex justify-between items-baseline">
-                                                <p className="font-bold text-white truncate">{chat.name}</p>
-                                                <p className="text-xs text-red-300 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                                            </div>
-                                            <p className="text-sm text-red-200/70 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
-                                        </div>
+                                <div className="flex-grow overflow-hidden">
+                                    <div className="flex justify-between items-baseline">
+                                        <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
+                                        <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                                     </div>
-                                ))}
+                                    <p className="text-sm text-gray-400 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
+                                </div>
                             </div>
-                        )}
-                        
-                        {/* NORMAL CHATS */}
-                        {normalChats.length > 0 && (
-                             <div className="pt-2">
-                                <div className="px-3 py-1 text-xs font-bold text-gray-500 uppercase tracking-wider">Conversas</div>
-                                {normalChats.map(chat => (
-                                    <div key={chat.id} onClick={() => setActiveChatId(chat.id)} className={`flex items-center gap-3 p-3 cursor-pointer border-l-4 transition-colors ${activeChatId === chat.id ? 'bg-brand-red/20 border-brand-red' : 'border-transparent hover:bg-white/5'}`}>
-                                        <UserCircleIcon className="w-10 h-10 text-gray-400 flex-shrink-0" />
-                                        <div className="flex-grow overflow-hidden">
-                                            <div className="flex justify-between items-baseline">
-                                                <p className="font-bold text-white truncate">{chat.name || chat.id.split('@')[0]}</p>
-                                                <p className="text-xs text-gray-500 flex-shrink-0 ml-2">{new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                                            </div>
-                                            <p className="text-sm text-gray-400 truncate">{chat.lastMessage?.body || 'Sem mensagens'}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        ))}
                     </div>
                 </div>
                 {/* Janela de Chat */}
-                <div className="flex-1 flex flex-col bg-brand-gray-dark rounded-r-lg relative">
+                <div className="flex-1 flex flex-col bg-brand-gray-dark rounded-r-lg">
                     {activeChat ? (
                          <>
-                            {activeChat.inQueue && (
-                                <div className="bg-red-900/80 p-2 flex justify-between items-center px-4 border-b border-red-700">
-                                    <div className="flex items-center gap-2 text-white">
-                                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                                        <span className="text-sm font-semibold">Este cliente aguarda atendimento humano. O robô está pausado.</span>
+                            <div className="p-3 border-b border-white/10 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <UserCircleIcon className="w-10 h-10 text-gray-400" />
+                                    <div>
+                                        <p className="font-bold text-white">{activeChat.name}</p>
+                                        {activeChat.isHumanSupport && <p className="text-xs text-yellow-500 font-semibold">Em atendimento humanizado</p>}
                                     </div>
-                                    <button onClick={handleResolveHuman} className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-1 px-3 rounded-md border border-red-400">
+                                </div>
+                                {activeChat.isHumanSupport && (
+                                    <button 
+                                        onClick={handleFinishSupport}
+                                        className="bg-green-600 hover:bg-green-500 text-white text-sm font-bold py-2 px-4 rounded-md transition-colors flex items-center gap-2"
+                                    >
+                                        <CheckCircleIcon className="w-4 h-4"/>
                                         Finalizar Atendimento
                                     </button>
-                                </div>
-                            )}
-                            <div className="p-3 border-b border-white/10 flex items-center gap-3">
-                                <UserCircleIcon className="w-10 h-10 text-gray-400" />
-                                <p className="font-bold text-white">{activeChat.name}</p>
+                                )}
                             </div>
                             <div className="p-4 space-y-4 flex-grow overflow-y-auto">
                                 {messages.map((msg, index) => (
@@ -2043,21 +2030,9 @@ const App = () => {
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState('Inicializando...');
 
-    const addNotification = useCallback((message: string, type: 'info' | 'success' | 'alert' = 'info') => {
+    const addNotification = useCallback((message: string) => {
          const newNotif: NotificationItem = { id: `notif-${Date.now()}`, message, timestamp: new Date(), read: false };
          setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
-         if (type === 'alert' && window.Audio) {
-             try {
-                 // Simple beep for alert
-                 const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                 const oscillator = audioCtx.createOscillator();
-                 oscillator.type = 'square';
-                 oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // 440Hz
-                 oscillator.connect(audioCtx.destination);
-                 oscillator.start();
-                 oscillator.stop(audioCtx.currentTime + 0.5); // Play for 0.5s
-             } catch(e) { console.error("Audio play failed", e); }
-         }
     }, []);
     
     const saveData = useCallback(async (dataToSave: { [key: string]: any }) => {
@@ -2072,9 +2047,9 @@ const App = () => {
             }
         } catch (error) {
             console.error("Failed to save data:", error);
-            // addNotification("Erro: Falha ao salvar os dados no servidor.");
+            addNotification("Erro: Falha ao salvar os dados no servidor.");
         }
-    }, []);
+    }, [addNotification]);
     
     const handleDataUpdateFromBot = useCallback((data: any) => {
         if (!data) return;
@@ -2106,11 +2081,11 @@ const App = () => {
             if (data.automatedMessages) setAutomatedMessages(data.automatedMessages);
         } catch (error) {
             console.error("Failed to load data from server:", error);
-            // addNotification("Erro: Não foi possível carregar os dados do servidor.");
+            addNotification("Erro: Não foi possível carregar os dados do servidor.");
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [addNotification]);
     
     useEffect(() => {
         loadData();
@@ -2122,17 +2097,17 @@ const App = () => {
             let newClients;
             if (clientData.id) {
                 newClients = prevClients.map(c => c.id === clientData.id ? { ...c, ...clientData } as Client : c);
-                // addNotification(`Cliente "${clientData.name}" atualizado.`);
+                addNotification(`Cliente "${clientData.name}" atualizado.`);
             } else {
                 const newClient = { ...clientData, id: `c${Date.now()}`, cars: clientData.cars || [] } as Client;
                 newClients = [...prevClients, newClient];
-                // addNotification(`Novo cliente "${clientData.name}" adicionado.`);
+                addNotification(`Novo cliente "${clientData.name}" adicionado.`);
             }
             saveData({ clients: newClients });
             return newClients;
         });
         setIsClientModalOpen(false);
-    }, [saveData]);
+    }, [addNotification, saveData]);
 
     const handleClientDelete = useCallback((id: string) => {
         if (window.confirm('Tem certeza?')) {
@@ -2149,19 +2124,19 @@ const App = () => {
             let newAppointments;
             if (appointmentData.id) {
                 newAppointments = prevAppointments.map(a => a.id === appointmentData.id ? { ...a, ...appointmentData } as Appointment : a);
-                // addNotification(`Agendamento atualizado.`);
+                addNotification(`Agendamento atualizado.`);
             } else {
                 const newAppointment: Appointment = { ...appointmentData, id: `a${Date.now()}`};
                 newAppointments = [...prevAppointments, newAppointment];
-                // const clientName = clients.find(c => c.id === newAppointment.clientId)?.name || 'Cliente';
-                // const appointmentDate = new Date(newAppointment.date + 'T00:00:00').toLocaleDateString('pt-BR');
-                // addNotification(`${clientName} agendou para ${appointmentDate} às ${newAppointment.time}.`);
+                const clientName = clients.find(c => c.id === newAppointment.clientId)?.name || 'Cliente';
+                const appointmentDate = new Date(newAppointment.date + 'T00:00:00').toLocaleDateString('pt-BR');
+                addNotification(`${clientName} agendou para ${appointmentDate} às ${newAppointment.time}.`);
             }
             saveData({ appointments: newAppointments });
             return newAppointments;
         });
         setIsAppointmentModalOpen(false);
-    }, [clients, saveData]);
+    }, [addNotification, clients, saveData]);
     
     const handleAppointmentDelete = useCallback((id: string) => {
         if (window.confirm('Tem certeza?')) {
@@ -2215,10 +2190,10 @@ const App = () => {
             const updatedData = await response.json();
             setCatalogFiles(updatedData.catalogFiles || []);
             setServices(updatedData.services || services);
-            addNotification("Catálogo(s) enviado com sucesso!", 'success');
+            addNotification("Catálogo(s) enviado com sucesso!");
         } catch (error) {
             console.error(error);
-            addNotification("Erro ao enviar catálogo.", 'alert');
+            addNotification("Erro ao enviar catálogo.");
         } finally {
             setIsProcessingFile(false);
         }
@@ -2237,31 +2212,41 @@ const App = () => {
                 return res.json();
             }).then(data => {
                 setServices(data.services); // update services if any were removed
-                // addNotification("Arquivo removido.");
+                addNotification("Arquivo removido.");
             })
             .catch(err => {
                 console.error("Failed to delete catalog file:", err);
-                // addNotification("Erro ao remover o arquivo.");
+                addNotification("Erro ao remover o arquivo.");
                 loadData(); // reload to get back to consistent state
             });
         }
-    }, [loadData]);
+    }, [addNotification, loadData]);
 
     const handleStartService = useCallback((id: string) => {
         setAppointments(prevAppointments => {
             const newAppointments = prevAppointments.map(app => app.id === id ? { ...app, status: AppointmentStatus.InProgress } : app);
+            const app = newAppointments.find(a => a.id === id);
+            if (app) {
+                const clientName = clients.find(c => c.id === app.clientId)?.name || 'Cliente';
+                addNotification(`Serviço iniciado para ${clientName}.`);
+            }
             saveData({ appointments: newAppointments });
             return newAppointments;
         });
-    }, [saveData]);
+    }, [clients, saveData, addNotification]);
 
     const handleFinishService = useCallback((id: string) => {
         setAppointments(prevAppointments => {
             const newAppointments = prevAppointments.map(app => app.id === id ? { ...app, status: AppointmentStatus.Finished } : app);
+            const app = newAppointments.find(a => a.id === id);
+            if (app) {
+                const clientName = clients.find(c => c.id === app.clientId)?.name || 'Cliente';
+                addNotification(`Serviço finalizado para ${clientName}. Mensagem enviada.`);
+            }
             saveData({ appointments: newAppointments });
             return newAppointments;
         });
-    }, [saveData]);
+    }, [clients, saveData, addNotification]);
     
     const handleSaveSettings = useCallback((settings: { operatingHours: OperatingHours, automatedMessages: AutomatedMessage[], monthlyPlans: MonthlyPlan[], users: User[] }) => {
          setOperatingHours(settings.operatingHours);
@@ -2269,7 +2254,7 @@ const App = () => {
          setMonthlyPlans(settings.monthlyPlans);
          setUsers(settings.users);
          saveData(settings);
-         addNotification("Configurações salvas com sucesso!", 'success');
+         addNotification("Configurações salvas com sucesso!");
      }, [addNotification, saveData]);
     
     const handleNewConversation = useCallback((log: ConversationLog) => setConversationLogs(prev => [log, ...prev.slice(0, 49)]), []);
