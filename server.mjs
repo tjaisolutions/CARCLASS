@@ -7,9 +7,9 @@ import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 // Removed unused mongoose import
 import { EventEmitter } from 'events';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, jidNormalizedUser } from '@whiskeysockets/baileys';
 import pino from 'pino';
-import QRCode from 'qrcode';
+import qrcode from 'qrcode';
 
 
 // --- SETUP ---
@@ -69,7 +69,6 @@ const getInitialState = () => ({
     wa_chats: {}, 
     // Chatbot state tracking
     chatbot_sessions: {},
-    human_chat_queue: [], // Tracks JIDs of users waiting for human support
 });
 
 
@@ -140,7 +139,6 @@ const loadDb = () => {
     if (!aistudio.wa_chats) aistudio.wa_chats = {};
     if (!aistudio.chatbot_sessions) aistudio.chatbot_sessions = {};
     if (!aistudio.catalogFiles) aistudio.catalogFiles = [];
-    if (!aistudio.human_chat_queue) aistudio.human_chat_queue = [];
 
     saveDb(); // Save immediately to ensure the owner fix is persisted
 };
@@ -291,7 +289,7 @@ const startWhatsApp = async () => {
             const { connection, lastDisconnect, qr } = update;
             
             if(qr) {
-                waConnectionStatus = { isConnected: false, message: 'Escaneie o QR Code para conectar', qrCode: await QRCode.toDataURL(qr) };
+                waConnectionStatus = { isConnected: false, message: 'Escaneie o QR Code para conectar', qrCode: await qrcode.toDataURL(qr) };
                 waEvents.emit('event', { type: 'status_change', data: waConnectionStatus });
             }
             
@@ -403,18 +401,17 @@ apiRouter.get('/whatsapp/chats', (req, res) => {
      const chats = Object.keys(aistudio.wa_chats).map(chatId => {
         const messages = aistudio.wa_chats[chatId];
         const lastMessage = messages[messages.length - 1];
+        // A simple way to get a name. In a real app, you'd store contact names.
         const contact = aistudio.clients.find(c => c.whatsapp === chatId.split('@')[0]);
-        // Check queue status
-        const inQueue = aistudio.human_chat_queue && aistudio.human_chat_queue.includes(chatId);
-        
+        const session = aistudio.chatbot_sessions[chatId];
         return {
             id: chatId,
             name: contact?.name || chatId.split('@')[0],
-            inQueue: inQueue,
             lastMessage: {
                 body: lastMessage?.body || '',
                 timestamp: lastMessage?.timestamp || 0
-            }
+            },
+            isHumanSupport: session?.state === 'HUMAN_SUPPORT'
         };
     }).sort((a, b) => b.lastMessage.timestamp - a.lastMessage.timestamp);
     res.json(chats);
@@ -451,19 +448,14 @@ apiRouter.post('/whatsapp/send-message', async (req, res) => {
     }
 });
 
-apiRouter.post('/whatsapp/resolve-human', (req, res) => {
+apiRouter.post('/whatsapp/resolve-support', async (req, res) => {
     const { chatId } = req.body;
-    if (aistudio.human_chat_queue) {
-        aistudio.human_chat_queue = aistudio.human_chat_queue.filter(jid => jid !== chatId);
-        
-        // Reset bot session to greeting
-        aistudio.chatbot_sessions[chatId] = { state: 'GREETING' };
-        
+    if (aistudio.chatbot_sessions[chatId]) {
+        // Reset session so next message triggers chatbot from start or a clean state
+        delete aistudio.chatbot_sessions[chatId];
         saveDb();
-        res.status(200).json({ success: true });
-    } else {
-        res.status(500).json({ error: "Queue not initialized" });
     }
+    res.status(200).json({ success: true });
 });
 
 // Mount the API router
@@ -473,6 +465,7 @@ app.use('/api', apiRouter);
 // --- CHATBOT IMPLEMENTATION ---
 
 // Helper functions for the bot
+// Using Brazil time for accurate scheduling
 const getBrazilDate = () => new Date(new Date().toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
 
 const normalizeCPF = (cpf) => cpf.replace(/[^\d]/g, '');
@@ -612,16 +605,15 @@ const getAvailableSlots = () => {
 };
 
 const handleBotLogic = async (senderJid, message, senderName) => {
-    // 1. CRITICAL CHECK: Is user in human queue?
-    if (aistudio.human_chat_queue && aistudio.human_chat_queue.includes(senderJid)) {
-        // Stop bot execution for this user immediately
-        return;
-    }
-
     let session = aistudio.chatbot_sessions[senderJid] || { state: 'GREETING' };
     const normalizedMessage = normalizeText(message);
     const clientNumber = senderJid.split('@')[0];
     
+    // IMPORTANT: Check for Human Support State First
+    if (session.state === 'HUMAN_SUPPORT') {
+        return; // Bot does nothing, human must answer
+    }
+
     if (session.state === 'CONVERSATION_ENDED' && message) {
         session = { state: 'GREETING' };
     }
@@ -629,11 +621,27 @@ const handleBotLogic = async (senderJid, message, senderName) => {
     const sendBotMessage = async (text) => {
         await sendMessageWTyping(senderJid, text);
     };
+    
+    // Logic to enable human support
+    const triggerHumanSupport = async () => {
+        session.state = 'HUMAN_SUPPORT';
+        aistudio.chatbot_sessions[senderJid] = session;
+        saveDb();
+        
+        // Notify owner via "SMS" (Message to self)
+        if (sock && sock.user) {
+            const ownerJid = jidNormalizedUser(sock.user.id);
+            await sock.sendMessage(ownerJid, { text: `Cliente ${clientNumber} (${senderName}) quer tirar dúvida.` });
+        }
+        
+        await sendBotMessage("Certo! Encaminhei sua solicitação para nosso atendimento. Em breve um atendente irá falar com você por aqui.");
+    };
 
     const resetSession = () => {
         delete aistudio.chatbot_sessions[senderJid];
     };
     
+    // Sends the complete, updated data to the frontend for robust sync
     const notifyFrontendOfDbChange = () => {
         waEvents.emit('event', { 
             type: 'db_change', 
@@ -643,31 +651,6 @@ const handleBotLogic = async (senderJid, message, senderName) => {
             } 
         });
     }
-    
-    // --- HELPER: MOVE TO HUMAN SUPPORT ---
-    const moveToHumanSupport = async () => {
-        if (!aistudio.human_chat_queue) aistudio.human_chat_queue = [];
-        if (!aistudio.human_chat_queue.includes(senderJid)) {
-            aistudio.human_chat_queue.push(senderJid);
-        }
-        saveDb();
-        
-        await sendBotMessage("Entendido. Estou transferindo seu atendimento para um de nossos especialistas. Aguarde um momento que eles já irão te responder por aqui.");
-        
-        // Internal SMS Alert (Note to Self)
-        if (sock && sock.user && sock.user.id) {
-            const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-            try {
-               await sock.sendMessage(selfJid, { text: `🚨 *ALERTA DE ATENDIMENTO*\n\nCliente: ${senderName}\nNúmero: ${clientNumber}\n\n*SOLICITOU ATENDIMENTO HUMANO (DÚVIDA)*` });
-            } catch(e) { console.error("Failed to send self-alert", e); }
-        }
-        
-        // System Notification for Web Panel
-        waEvents.emit('event', { 
-            type: 'system_notification', 
-            data: { message: `Cliente ${senderName} quer tirar duvida`, type: 'alert' } 
-        });
-    };
 
     const showSummaryAndConfirm = async () => {
         const { serviceId, carId, date, time, protections } = session;
@@ -685,7 +668,7 @@ const handleBotLogic = async (senderJid, message, senderName) => {
         }
         if (protections) summary += `*Proteções informadas:* ${protections}\n`;
 
-        summary += "\nEstá tudo correto? Responda *Confirmar*, *Alterar* ou *Tirar Dúvida*.";
+        summary += "\nEstá tudo correto? Responda *Confirmar* ou *Alterar*.";
         await sendBotMessage(summary);
         session.state = 'AWAITING_FINAL_CONFIRMATION';
     };
@@ -693,9 +676,12 @@ const handleBotLogic = async (senderJid, message, senderName) => {
     const handlePlanCheck = async () => {
         const client = aistudio.clients.find(c => c.id === session.clientId);
         if (client.monthlyPlanId) {
+            // Client has a plan
             const plan = aistudio.monthlyPlans.find(p => p.id === client.monthlyPlanId);
             const today = getBrazilDate();
             const currentCycleStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+            
+            // Get usage
             let usage = aistudio.clientPlanUsages.find(u => u.clientId === client.id && u.cycleStartDate === currentCycleStart);
             
             if (plan) {
@@ -709,10 +695,13 @@ const handleBotLogic = async (senderJid, message, senderName) => {
                 statusMsg += details;
                 await sendBotMessage(statusMsg);
             }
+            
+            // Skip plan pitch, go to service selection
             await sendBotMessage("Deseja ver a lista completa de serviços ou prefere escolher o serviço no local?");
             session.state = 'CHOOSE_SERVICE_OPTION';
 
         } else {
+            // Client does NOT have a plan
             await sendBotMessage("Verifiquei que você ainda não possui um plano mensal conosco. Gostaria de *conhecer* nossos planos e economizar, ou prefere *prosseguir* com o agendamento avulso?");
             session.state = 'AWAITING_PLAN_INTEREST_RESPONSE';
         }
@@ -720,33 +709,23 @@ const handleBotLogic = async (senderJid, message, senderName) => {
 
     switch (session.state) {
         case 'GREETING':
-            await sendBotMessage(`Olá! Sou o assistente virtual da CAR CLASS.
-            
-1. Já é cliente? (Sim/Não)
-2. Tirar Dúvida
-
-Responda com *Sim*, *Não* ou *Dúvida*.`);
-            // Notify system of new chat start
-            waEvents.emit('event', { 
-                type: 'system_notification', 
-                data: { message: `Nova conversa iniciada com o cliente ${senderName}`, type: 'info' } 
-            });
-            session.state = 'AWAITING_IS_CLIENT_RESPONSE';
+            await sendBotMessage(`Olá! Sou o assistente virtual da CAR CLASS. Como posso te ajudar hoje?\n\n1. Já sou cliente\n2. Novo Cadastro\n3. Tirar Dúvidas`);
+            session.state = 'AWAITING_MENU_RESPONSE';
             break;
 
-        case 'AWAITING_IS_CLIENT_RESPONSE':
-            if (normalizedMessage.includes('duvida')) {
-                await moveToHumanSupport();
-                return; // Stop bot execution
-            } else if (normalizedMessage.includes('sim')) {
+        case 'AWAITING_MENU_RESPONSE':
+            if (normalizedMessage.includes('3') || normalizedMessage.includes('duvida')) {
+                await triggerHumanSupport();
+                return; // Stop processing
+            } else if (normalizedMessage.includes('1') || normalizedMessage.includes('ja sou') || normalizedMessage.includes('cliente')) {
                 await sendBotMessage("Que bom te ver de volta! Por favor, digite seu CPF para localizarmos seu cadastro. (Pode ser com pontos e traço)");
                 session.state = 'VALIDATING_CPF';
                 session.cpfRetryCount = 0;
-            } else if (normalizedMessage.includes('nao')) {
+            } else if (normalizedMessage.includes('2') || normalizedMessage.includes('novo') || normalizedMessage.includes('cadastro')) {
                 await sendBotMessage("Seja bem-vindo(a)! Vamos realizar seu cadastro. Por favor, digite seu nome completo.");
                 session.state = 'AWAITING_NEW_CLIENT_NAME';
             } else {
-                await sendBotMessage("Desculpe, não entendi. Por favor, responda com *Sim*, *Não* ou *Dúvida*.");
+                await sendBotMessage("Desculpe, não entendi. Por favor, digite o número da opção desejada:\n1. Já sou cliente\n2. Novo Cadastro\n3. Tirar Dúvidas");
             }
             break;
 
@@ -762,6 +741,7 @@ Responda com *Sim*, *Não* ou *Dúvida*.`);
                     await sendBotMessage(`Verifiquei aqui e você já tem um agendamento para ${appointmentDate}. Você deseja *alterar*, *cancelar* este agendamento ou *prosseguir* com um novo?`);
                     session.state = 'AWAITING_EXISTING_APPOINTMENT_ACTION';
                 } else {
+                    // Check for plans before going to service selection
                     await handlePlanCheck();
                 }
             } else {
@@ -788,6 +768,7 @@ Responda com *Sim*, *Não* ou *Dúvida*.`);
                 await sendBotMessage("Ok, vamos alterar. " + getAvailableSlots());
                 session.state = 'AWAITING_DATETIME_FOR_CHANGE';
             } else if (normalizedMessage.includes('prosseguir')) {
+                 // Check for plans before going to service selection
                  await handlePlanCheck();
             } else {
                 await sendBotMessage("Por favor, responda com *alterar*, *cancelar* ou *prosseguir*.");
@@ -812,6 +793,7 @@ Responda com *Sim*, *Não* ou *Dúvida*.`);
                 await sendBotMessage("Cadastro concluído com sucesso!");
                 notifyFrontendOfDbChange();
             }
+            // Check plans for new or existing client
             await handlePlanCheck();
             break;
 
@@ -917,7 +899,7 @@ Responda com *Sim*, *Não* ou *Dúvida*.`);
                          const carToConfirm = clientForVehicleCheck.cars.find(c => c.id === aistudio.appointments.find(a => a.id === session.existingAppointmentId).carId);
                          await sendBotMessage(`O serviço será no seu *${carToConfirm.model} (${carToConfirm.plate})*? (*Sim* ou *Não*)`);
                          session.state = 'CONFIRM_EXISTING_VEHICLE_FOR_CHANGE';
-                     } else {
+                     } else { // Should not happen if appointment existed, but as a fallback
                           await sendBotMessage("Agora, me diga, seu veículo possui algum tipo de proteção como PPF, vitrificação, etc? (Responda *Sim* ou *Não*)");
                           session.state = 'AWAITING_PROTECTION_RESPONSE';
                      }
@@ -1036,10 +1018,7 @@ Responda com *Sim*, *Não* ou *Dúvida*.`);
             break;
             
         case 'AWAITING_FINAL_CONFIRMATION':
-            if (normalizedMessage.includes('duvida')) {
-                await moveToHumanSupport();
-                return; // Stop bot
-            } else if (normalizedMessage.includes('confirmar')) {
+            if (normalizedMessage.includes('confirmar')) {
                 if (!isSlotAvailable(session.date, session.time)) {
                     await sendBotMessage("Oh, que pena! Parece que alguém acabou de agendar neste mesmo horário enquanto você confirmava. Vamos tentar outro?");
                     await sendBotMessage(getAvailableSlots());
@@ -1062,19 +1041,25 @@ Responda com *Sim*, *Não* ou *Dúvida*.`);
                     aistudio.appointments.push({ ...appointmentData, id: `a${Date.now()}`});
                 }
                 notifyFrontendOfDbChange();
-                await sendBotMessage("Agendamento confirmado com sucesso! Muito obrigado por escolher a CAR CLASS. Até breve!");
-                // System notification for booking
-                waEvents.emit('event', { 
-                    type: 'system_notification', 
-                    data: { message: `Cliente ${senderName} agendou um horário`, type: 'success' } 
-                });
-                session.state = 'CONVERSATION_ENDED';
+                
+                // End flow option - Ask for doubts
+                await sendBotMessage("Agendamento confirmado com sucesso! Muito obrigado por escolher a CAR CLASS.\n\nDeseja encerrar o atendimento ou tem mais alguma dúvida?\n\n1. Encerrar\n2. Tirar Dúvidas");
+                session.state = 'AWAITING_POST_CONFIRMATION_ACTION';
 
             } else if (normalizedMessage.includes('alterar')) {
                 await sendBotMessage("O que você deseja alterar? (*Serviço*, *Veículo*, *Data/Hora* ou *Proteção*)");
                 session.state = 'AWAITING_ALTERATION_CHOICE';
             } else {
-                await sendBotMessage("Por favor, responda com *Confirmar*, *Alterar* ou *Dúvida*.");
+                await sendBotMessage("Por favor, responda com *Confirmar* ou *Alterar*.");
+            }
+            break;
+            
+        case 'AWAITING_POST_CONFIRMATION_ACTION':
+            if (normalizedMessage.includes('2') || normalizedMessage.includes('duvida')) {
+                await triggerHumanSupport();
+            } else {
+                await sendBotMessage("Combinado! Até breve!");
+                session.state = 'CONVERSATION_ENDED';
             }
             break;
             
@@ -1100,15 +1085,20 @@ Responda com *Sim*, *Não* ou *Dúvida*.`);
 
 
 // --- STARTUP LOGIC ---
+// Differentiate between development (Vite middleware) and production (standalone server)
 const isViteDev = process.env.npm_lifecycle_script?.includes('vite');
 
 if (isViteDev) {
+    // DEVELOPMENT: Running as Vite middleware.
     console.log('[Vite Dev] Anexando servidor Express e iniciando WhatsApp...');
     startWhatsApp().catch(err => console.error("[Vite Dev Startup] Erro fatal ao iniciar o WhatsApp:", err));
 } else {
+    // PRODUCTION: Running as a standalone Node.js server.
+    // Serve the built frontend files.
     // @ts-ignore
     app.use(express.static(DIST_DIR));
     
+    // Explicitly handle 404s for common asset types to prevent index.html fallback errors (MIME type issues)
     app.get('*', (req, res, next) => {
         if (req.url.match(/\.(css|js|png|jpg|jpeg|gif|ico|json|map)$/)) {
             return res.status(404).end();
@@ -1116,6 +1106,7 @@ if (isViteDev) {
         res.sendFile(path.join(DIST_DIR, 'index.html'));
     });
 
+    // Start listening and then start WhatsApp.
     app.listen(port, () => {
         console.log(`[Server] Servidor HTTP rodando na porta ${port}`);
         startWhatsApp().catch(err => console.error("[Production Startup] Erro fatal ao iniciar o WhatsApp:", err));
