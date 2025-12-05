@@ -99,6 +99,9 @@ const notifyFrontendOfDbChange = () => {
 const app = express();
 app.use(express.json());
 
+// Serve static files from the React app (Vite build)
+app.use(express.static(DIST_DIR));
+
 // API Routes
 app.get('/api/data', (req, res) => res.json(db));
 
@@ -718,6 +721,12 @@ app.get('/api/whatsapp/events', (req, res) => {
         eventEmitter.off(DB_CHANGE_EVENT, dbHandler);
         eventEmitter.off(NOTIFICATION_EVENT, notificationHandler);
     });
+});
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(DIST_DIR, 'index.html'));
 });
 
 // Start Server
